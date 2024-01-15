@@ -9,6 +9,7 @@ This repository contains the code used to produce the results in the paper "Lens
 
 ### Setup
 Follows the current plan for [LSST Y1 sims](https://docs.google.com/document/d/1wUc5joml9FFDijslaQth3-gvAAmvqU2NrVMbUUjOCyI/edit)
+[Config](https://github.com/atokiwaipmu/LensingSSC/assets/106581872/df9ae051-ba15-4d29-a119-39e6c01aa430)
 
 ### Methods
 By comparing between HOS (peaks, minima, PDFs, etc) measured from:
