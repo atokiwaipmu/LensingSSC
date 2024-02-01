@@ -1,0 +1,22 @@
+#!/bin/bash
+
+#!/bin/bash
+#PBS -N wlen_test_0.0_2.2
+#PBS -o /lustre/work/akira.tokiwa/Projects/LensingSSC/job/log/test_0.0_2.2.out
+#PBS -e /lustre/work/akira.tokiwa/Projects/LensingSSC/job/log/test_0.0_2.2.err
+#PBS -l nodes=4:ppn=32,walltime=99:99:99
+#PBS -u akira.tokiwa
+#PBS -M akira.tokiwa@ipmu.jp
+#PBS -m ae
+#PBS -q small
+
+source ~/.bashrc
+conda activate cfastpm
+
+cd /lustre/work/akira.tokiwa/Projects/LensingSSC/
+
+SRC=/lustre/work/akira.tokiwa/SRsample/HR/rfof_proc128_nc256_size625_nsteps60lin_ldr0_rcvnil_fstnone_pnf2_lnf2_s200_dhf1.0000_tiled0.20_fll_elllim_10000_npix_512_rfofkdt_8/usmesh/
+DST=/lustre/work/akira.tokiwa/Projects/LensingSSC/data/wlen/
+
+zs='0.50 1.00 2.00 '
+python -m scripts.wlen $DST $SRC $zs --zlmin 0.0 --zlmax 2.2 --zstep=0.2 --nside=512

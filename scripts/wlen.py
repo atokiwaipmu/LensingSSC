@@ -98,7 +98,7 @@ def wlen(Om, dl, zl, ds, Nzs=1):
     
     return w_lensing
 
-from lib.mpl_aea import healpix
+from lib.mpl_aea.mpl_aea import healpix
 
 def weighted_map(ipix, npix, weights, localsize, comm):
     """ Make a map from particles, for quantities like
