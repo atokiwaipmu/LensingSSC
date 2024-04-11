@@ -33,6 +33,9 @@ in an accurate way for wlen, this is probably OK for now.
 
 """
 
+import sys
+import os
+import gc
 import nbodykit
 from nbodykit.lab import BigFileCatalog
 from nbodykit.transform import ConcatenateSources, CartesianToEquatorial
@@ -44,6 +47,11 @@ from mpi4py import MPI
 nbodykit.setup_logging()
 nbodykit.set_options(dask_chunk_size=1024 * 1024)
 nbodykit.set_options(global_cache_size=0)
+
+import resource
+import argparse
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 from nbodykit.utils import DistributedArray, GatherArray
 
@@ -78,7 +86,6 @@ def inv_sigma(ds, dl, zl):
     w = (100. / 3e5) ** 2 * (1 + zl)* dl
     inv_sigma_c = (ddls * w)
     return inv_sigma_c
-    
     
 def wlen(Om, dl, zl, ds, Nzs=1):
     """
@@ -121,7 +128,6 @@ def weighted_map(ipix, npix, weights, localsize, comm):
     ipix, labels = numpy.unique(ipix, return_inverse=True)
     N = numpy.bincount(labels)
     weights = numpy.bincount(labels, weights)
-    #print("shrink to %d from %d" % (len(ipix), len(labels)))
 
     del labels
  
@@ -135,7 +141,7 @@ def weighted_map(ipix, npix, weights, localsize, comm):
     pairs['N'][-1] = 0
 
     disa = DistributedArray(pairs, comm=comm)
-    disa.sort('ipix')
+    disa.sort('ipix') #ERROR: STOPPED HERE
 
     w = disa['ipix'].bincount(weights=disa['weights'].local, local=False, shared_edges=False)
     N = disa['ipix'].bincount(weights=disa['N'].local, local=False, shared_edges=False)
@@ -223,6 +229,7 @@ def make_kappa_maps(cat, nside, zs_list, ds_list, localsize, nbar):
     kappabar_list = []
     Nm_list = []
     for zs, ds in zip(zs_list, ds_list):
+        gc.collect()
         LensKernel = da.apply_gufunc(lambda dl, zl, Om, ds: wlen(Om, dl, zl, ds), 
                                      "(), ()-> ()",
                                      dl, zl, Om=Om, ds=ds)
@@ -235,7 +242,9 @@ def make_kappa_maps(cat, nside, zs_list, ds_list, localsize, nbar):
         if cat.comm.rank == 0:
             cat.logger.info("source plane %g weights are persisted" % zs)
         Wmap, Nmap = weighted_map(ipix, npix, weights, localsize, cat.comm)
-
+        if cat.comm.rank == 0:
+            cat.logger.info("after weighted map: Wmap occupied memory %g gb" % (sys.getsizeof(Wmap) / 1024 / 1024 / 1024))
+            cat.logger.info("Nmap occupied memory %g gb" % (sys.getsizeof(Nmap) / 1024 / 1024 / 1024))
         cat.comm.barrier()
         if cat.comm.rank == 0:
             cat.logger.info("source plane %g maps generated" % zs)
@@ -269,6 +278,8 @@ def make_kappa_maps(cat, nside, zs_list, ds_list, localsize, nbar):
         kappa_list.append(kappa1)
         kappabar_list.append(kappa1bar)
         Nm_list.append(Nmap)
+
+        del kappa1, Wmap, Nmap, kappa1bar, weights, LensKernel
     """
     # estimate nbar
     dlmin = dl.min()
@@ -279,17 +290,6 @@ def make_kappa_maps(cat, nside, zs_list, ds_list, localsize, nbar):
     # returns number rather than delta, since we do not know fsky here.
     #Nmap = Nmap / cat.csize * cat.comm.allreduce((Nmap > 0).sum()) # to overdensity.
     return numpy.array(kappa_list), numpy.array(kappabar_list), numpy.array(Nm_list)
-
-import argparse
-ap = argparse.ArgumentParser()
-ap.add_argument('output')
-ap.add_argument('source')
-ap.add_argument('zs', nargs='+', type=float)
-ap.add_argument('--dataset', default='1')
-ap.add_argument('--zlmin', type=float, default=0.00)
-ap.add_argument('--zlmax', type=float, default=None)
-ap.add_argument('--zstep', type=float, default=0.5)
-ap.add_argument('--nside', type=int, default=512)
 
 def main(ns):
     if ns.zlmax is None:
@@ -324,22 +324,50 @@ def main(ns):
         cat.logger.info("Splitting data redshift bins %s" % str(z))
 
     for z1, z2 in zip(z[:-1], z[1:]):
-        import gc
         gc.collect()
         if cat.comm.rank == 0:
             cat.logger.info("nbar = %g, zlmin = %g, zlmax = %g zs = %s" % (nbar, z2, z1, zs_list))
 
+        if cat.comm.rank == 0:
+            cat.logger.info("reading range %g to %g" % (z1, z2))
         slice = read_range(cat, 1/(1 + z1), 1 / (1 + z2))
 
         if slice.csize == 0: continue
         if cat.comm.rank == 0:
-            cat.logger.info("read %d particles" % slice.csize)
+            cat.logger.info("read %d particles, occupied memory %g gb" % (slice.csize, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024))
 
         kappa1, kappa1bar, Nm1  = make_kappa_maps(slice, ns.nside, zs_list, ds_list, localsize, nbar)
 
         kappa = kappa + kappa1
         Nm = Nm + Nm1
         kappabar = kappabar + kappa1bar
+
+        if cat.comm.rank == 0:
+            fname = ns.output + "/WL-%02.2f-%02.2f-%d" % (z2, z1, ns.nside)
+            if os.path.exists(fname):
+                continue
+            else:
+                cat.logger.info("saving maps to %s" % fname)
+                #cat.logger.info("started writing source plane %s" % zs)
+
+                with bigfile.File(fname, create=True) as ff:
+
+                    ds1 = ff.create_from_array("kappa", kappa1, Nfile=1)
+                    ds2 = ff.create_from_array("Nm", Nm1, Nfile=1)
+
+                    for d in ds1, ds2:
+                        d.attrs['kappabar'] = kappa1bar
+                        d.attrs['nside'] = ns.nside
+                        d.attrs['zlmin'] = zlmin
+                        d.attrs['zlmax'] = zlmax
+                        #d.attrs['zs'] = zs
+                        #d.attrs['ds'] = ds
+                        d.attrs['nbar'] = nbar
+
+                    #cat.logger.info("source plane %s written" % zs)
+
+        cat.comm.barrier()
+        del kappa1, Nm1, kappa1bar
 
     cat.comm.barrier()
 
@@ -385,5 +413,14 @@ def main(ns):
     #        numpy.savez(ns.output, kappa1=kappa1, kappa1bar=kappa1bar, deltam=deltam, zlmin=zlmin, zlmax=zlmax, zs=zs, ds=ds)
 
 if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('output')
+    ap.add_argument('source')
+    ap.add_argument('zs', nargs='+', type=float)
+    ap.add_argument('--dataset', default='1')
+    ap.add_argument('--zlmin', type=float, default=0.00)
+    ap.add_argument('--zlmax', type=float, default=None)
+    ap.add_argument('--zstep', type=float, default=0.5)
+    ap.add_argument('--nside', type=int, default=512)
     ns = ap.parse_args()
     main(ns)

@@ -160,5 +160,5 @@ cython_debug/
 #.idea/
 
 data/
-job/log
+job/
 references/
