@@ -17,16 +17,12 @@ from mpi4py import MPI
 nbodykit.setup_logging()
 nbodykit.set_options(dask_chunk_size=1024 * 1024)
 nbodykit.set_options(global_cache_size=0)
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 import argparse
 
 from src.utils.pipeline import CosmicShearPipeline
 from src.utils.read_range import read_range
-
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
-
-import argparse
-
 
 def generate_job_script(z1, z2, config_file, job_template, log_dir, output_dir):
     job_name = "wlen_tiled_config_%02.2f_%02.2f" % (z1, z2)

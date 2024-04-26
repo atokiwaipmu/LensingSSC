@@ -162,3 +162,9 @@ cython_debug/
 data/
 job/
 references/
+results/bigbox
+results/tiled
+
+src/refactored/
+src/test/
+src/utils/

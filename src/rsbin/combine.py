@@ -40,6 +40,7 @@ def main():
             kappa += data["kappa"].astype(np.float64)
             Nm += tmp_Nm.astype(np.int32)
 
+
         fname = f"{path}/WL-{zs:02.2f}-N{config['nside']:04d}"
         with bigfile.File(fname, create=True) as ff:
             ds1 = ff.create_from_array("kappa", kappa, Nfile=1)

@@ -195,14 +195,15 @@ def main(config_file, z1=None, z2=None):
     if file_exists:
         return
 
-    batch_size = 10**8
+    batch_size = 10**7
     indices = np.arange(cat.csize//batch_size + 1) * batch_size
     if indices[-1] > cat.csize:
         indices[-1] = cat.csize
     if comm.rank == 0:
         logger.info("Data size: %d, separating into %d batches" % (cat.csize, len(indices)))
 
-    kappa, Nm = preallocate_data_storage(comm, pipeline, logger)
+    kappa = np.zeros([pipeline.nsources, pipeline.npix], dtype="f8"); log_memory(kappa, "kappa", comm, logger)
+    Nm = np.zeros([pipeline.nsources, pipeline.npix], dtype="i4"); log_memory(Nm, "Nm", comm, logger)
     for k in range(len(indices)-1):
         if comm.rank == 0:
             logger.info("Processing batch %d, indices %d to %d" % (k, indices[k], indices[k+1]))
@@ -212,7 +213,7 @@ def main(config_file, z1=None, z2=None):
         ipix = ipix.compute(); #log_memory(ipix, "ipix", comm, logger)
 
         for i, (zs, ds) in enumerate(zip(pipeline.zs_list, pipeline.ds_list)):
-            if comm.rank == 0: logger.info("Batch %d, redshift bin %f" % (k, zs))
+            #if comm.rank == 0: logger.info("Processing source redshift %f" % zs)
 
             LensKernel = da.apply_gufunc(lambda dl, zl, Om, ds: wlen(Om, dl, zl, ds), 
                                             "(), ()-> ()",
@@ -222,14 +223,8 @@ def main(config_file, z1=None, z2=None):
             del LensKernel; gc.collect()
 
             tmp_w, tmp_N = weighted_map(ipix, weights, pipeline.npix); #log_memory(tmp_w, "w", comm, logger); log_memory(tmp_N, "N", comm, logger)
-            
-            # Combine the results use MPI.IN_PLACE
-            if comm.rank == 0:
-                comm.Reduce(tmp_w, kappa[i], op=MPI.SUM, root=0)
-                comm.Reduce(tmp_N, Nm[i], op=MPI.SUM, root=0)
-            else:
-                comm.Reduce(tmp_w, None, op=MPI.SUM, root=0)
-                comm.Reduce(tmp_N, None, op=MPI.SUM, root=0)
+            kappa[i] += tmp_w
+            Nm[i] += tmp_N
 
             del tmp_w, tmp_N, weights; gc.collect()
 
