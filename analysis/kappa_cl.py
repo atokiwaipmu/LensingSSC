@@ -7,6 +7,7 @@ import healpy as hp
 import bigfile
 import matplotlib.pyplot as plt
 from analysis.calc_cl import calc_cl
+import argparse
 
 ### accuracy parameters
 lmax=5000
@@ -54,7 +55,7 @@ def gen_comp(file, recalculate=False):
     ell_sim, cl_sim = data['ell'], data['cl']
 
     # Compute halofit curve
-    fn_cl_camb = f'kappa_cl_camb_z{zs:.2f}.npz'
+    fn_cl_camb = f'/lustre/work/akira.tokiwa/Projects/LensingSSC/results/halofit/kappa_cl_camb_z{zs:.2f}.npz'
     if not os.path.isfile(fn_cl_camb):
           ell, clkk, clkk_lin = calc_cl(zs)
           np.savez(fn_cl_camb, ell=ell, clkk=clkk, clkk_lin=clkk_lin)
@@ -78,10 +79,15 @@ def gen_comp(file, recalculate=False):
     ax.legend(loc=0, frameon=0)
     ax.set_title(str(date.today()))
 
-    fig.savefig(f'kappa_cl_z{zs:.2f}.png', bbox_inches='tight')
+    fig.savefig(f'{file}/kappa_cl_z{zs:.2f}.png', bbox_inches='tight')
 
 if __name__ == '__main__':
     zs_list = [0.5, 1.0, 2.0, 3.0]
-    datadir = '/lustre/work/akira.tokiwa/Projects/LensingSSC/results/tiled/wlen'
+    parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
+    # choices=["tiled", "bigbox"] #['config_tiled_hp.json', 'config_bigbox_hp.json']
+    parser.add_argument('config', type=str, choices=['tiled', 'bigbox'], help='Configuration file')
+    args = parser.parse_args()
+    datadir = f'/lustre/work/akira.tokiwa/Projects/LensingSSC/results/{args.config}/wlen_hp'
+    os.makedirs(datadir, exist_ok=True)
     for zs in zs_list:
-        gen_comp(f"{datadir}/WL-{zs:.2f}-N8192")
+        gen_comp(f"{datadir}/WL-{zs:.2f}-N8192", recalculate=False)

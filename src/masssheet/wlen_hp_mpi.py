@@ -27,7 +27,7 @@ def setup_dask_cluster():
     client = Client(cluster)
     return client, cluster
 
-def make_massmap_dask(client, cat, npix):
+def make_massmap_dask(cat, npix):
     # Directly using Dask arrays from the 'cat' structure
     pid = cat['ID']
     mass = cat['Mass']
@@ -42,7 +42,8 @@ def make_massmap_dask(client, cat, npix):
 
     # Final computation to realize the Dask array
     # Using the client to compute allows better scheduling and resource management
-    final_mass_map = client.compute(mass_map_for_slice).result()
+    final_mass_map = mass_map_for_slice.compute()
+    #final_mass_map = client.compute(mass_map_for_slice).result()
     
     return final_mass_map
 
@@ -97,7 +98,7 @@ def make_kappabar(Om, ds_list, zmin, zmax, bins=10000):
     return np.array(kappabar_list)
 
 def main(config_file):
-    client, cluster = setup_dask_cluster()  # Set up the Dask client and cluster
+    #client, cluster = setup_dask_cluster()  # Set up the Dask client and cluster
     with open(config_file, 'r') as file:
         config = json.load(file)
     zs_list = config['zs']
@@ -145,7 +146,7 @@ def main(config_file):
         Lenskernel_list = np.array([wlen(Om, dl, zl, ds) for ds in ds_list])
         weights_list = (Lenskernel_list / (area * nbar))
         
-        Mmap = make_massmap_dask(client, sliced, npix)
+        Mmap = make_massmap_dask(sliced, npix)
         if cat.comm.rank == 0:
             cat.logger.info("mass map computed")
 
@@ -163,6 +164,7 @@ def main(config_file):
         cat.logger.info("writing to %s", config['destination'])
 
     save_path = os.path.join(datadir, config['destination'])
+    os.makedirs(save_path, exist_ok=True)
     for i, (zs, ds) in enumerate(zip(zs_list, ds_list)):
         std = np.std(cat.comm.allgather(len(kappa[i])))
         mean = np.mean(cat.comm.allgather(len(kappa[i])))

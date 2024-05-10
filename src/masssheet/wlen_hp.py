@@ -4,6 +4,7 @@ import numpy as np
 import bigfile
 from nbodykit.lab import BigFileCatalog
 from nbodykit.cosmology import Planck15
+from astropy.cosmology import z_at_value
 from dask_jobqueue import PBSCluster
 from dask.distributed import Client
 import dask.array as da
@@ -14,44 +15,16 @@ import argparse
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-def setup_dask_cluster():
-    # Setup Dask cluster using PBSCluster from Dask JobQueue
-    cluster = PBSCluster(
-        cores=52,  # adjust to your cluster's configuration
-        memory='120GB',  # adjust to your cluster's configuration
-        queue='small',  # the name of the queue
-        walltime='02:00:00',
-        local_directory='$TMPDIR'
-    )
-    cluster.scale(4)  # Adjust the scaling as needed
-    client = Client(cluster)
-    return client, cluster
-
-def make_massmap(cat, npix, client=None, vel_flag=True):
+def make_massmap(cat, npix):
     pid = cat['ID']    
     ipix = pid % npix    
     ipix = ipix.compute()
-    #ipix = client.compute(ipix)
-    #ipix = ipix.result()
     ipix = ipix.astype('i4')
-    counts_map_for_slice = np.bincount(ipix, minlength=npix)  # the number of particles in each pixel
 
     mass = cat['Mass'].compute()
-    #mass = client.compute(cat['Mass'])
-    #mass = mass.result()
     mass_map_for_slice = np.bincount(ipix, weights=mass, minlength=npix)   # the total mass
     
-    if vel_flag:
-        Rmom = cat['Rmom'].compute()
-        #Rmom = client.compute(cat['Rmom'])
-        #Rmom = Rmom.result()
-        rmom_map_for_slice = np.bincount(ipix, weights=Rmom, minlength=npix)  # the total momentum
-
-        velocity_map_for_slice = rmom_map_for_slice / (mass_map_for_slice + np.ones_like(mass_map_for_slice) * (mass_map_for_slice == 0))  # replace zeros with ones for dividing velocity map
-        
-        return mass_map_for_slice, velocity_map_for_slice, counts_map_for_slice
-    else:
-        return mass_map_for_slice, counts_map_for_slice
+    return mass_map_for_slice
 
 def read_slice(cat, islice):
     aemitIndex_offset = cat.attrs['aemitIndex.offset']
@@ -69,34 +42,24 @@ def inv_sigma(ds, dl, zl):
     inv_sigma_c = (ddls * w)
     return inv_sigma_c
     
-def wlen(Om, dl, zl, ds, Nzs=1):
-    """
-        Parameters
-        ----------
-        dl, zl: distance and redshift of lensing objects
-        
-        ds: distance source plane bins. if a single scalar, do a delta function bin.
-        
-        Nzs : number of objects in each ds bin. len(ds) - 1 items
-        
-    """
+def wlen_integrand(Om, dl, ds):
+    zl = z_at_value(Planck15.comoving_distance, dl)
     ds = np.atleast_1d(ds) # promote to 1d, sum will get rid of it
-    integrand = 1.5 * Om * Nzs * inv_sigma(ds, dl, zl)
-    Ntot = np.sum(Nzs)
-    w_lensing = np.sum(integrand, axis=0) / Ntot
-    
+    return 1.5 * Om * inv_sigma(ds, dl, zl)
+
+def wlen_int(Om, dlmin, dlmax, ds, dbin=100):
+    dl = np.linspace(dlmin, dlmax, dbin)
+    ddl = dl[1] - dl[0]
+    w_int = wlen_integrand(Om, dl, ds)
+    w_lensing = np.sum(w_int, axis=0) * ddl
     return w_lensing
-     
-def make_kappabar(Om, ds_list, zmin, zmax):
-    dmin = Planck15.comoving_distance(zmin)
-    dmax = Planck15.comoving_distance(zmax)
-    kappabar_list = []
-    for ds in ds_list:
-        LensKernel_min = wlen(Om, dmin, zmin, ds)
-        LensKernel_max = wlen(Om, dmax, zmax, ds)
-        kappabar = (LensKernel_max + LensKernel_min) / (dmax - dmin) / 2
-        kappabar_list.append(kappabar)
-    return np.array(kappabar_list)
+
+def wlen(Om, dlmin, dlmax, ds, dbin=100):
+    dl = (dlmin + dlmax) / 2
+    ddl = dlmax - dlmin
+    w_int = wlen_integrand(Om, dl, ds)
+    w_lensing = np.sum(w_int, axis=0) * ddl
+    return w_lensing
 
 def main(config_file):
     #client, cluster = setup_dask_cluster()  # Set up the Dask client and cluster
@@ -118,16 +81,14 @@ def main(config_file):
     npix = cat.attrs['healpix.npix'][0]
     nside = cat.attrs['healpix.nside'][0]
     nbar = (cat.attrs['NC'] ** 3  / cat.attrs['BoxSize'] ** 3 * cat.attrs['ParticleFraction'])[0]
+    rhobar = cat.attrs['MassTable'][1] * nbar
     Om = cat.attrs['OmegaM'][0]
 
-    localsize = npix * (cat.comm.rank + 1) // cat.comm.size - npix * (cat.comm.rank) // cat.comm.size
-
     kappa = np.zeros([len(zs_list), npix], dtype="f8")
-    Nm = np.zeros([len(zs_list), npix], dtype="i4")
-    kappabar = np.zeros([len(zs_list)], dtype="f8")
+    kappa_int = np.zeros([len(zs_list), npix], dtype="f8")
     if cat.comm.rank == 0:
         cat.logger.info("pre-allocation done")
-        cat.logger.info("memory usage by kappa, Nm: %f GB" % ((kappa.nbytes + Nm.nbytes) / 1024 ** 3))
+        cat.logger.info("memory usage by kappa: %f GB" % ((kappa.nbytes+kappa_int.nbytes) / 1024 ** 3))
 
     a = cat.attrs['aemitIndex.edges']
     for islice, (amin, amax) in enumerate(zip(a[:-1], a[1:])):
@@ -141,27 +102,18 @@ def main(config_file):
         if cat.comm.rank == 0:
             cat.logger.info("read %d particles" % sliced.csize)
 
-        zl = (zmin + zmax) / 2
-        dl = Planck15.comoving_distance(zl)
-        area = (4 * np.pi / npix) * dl**2
-        Lenskernel_list = []
-        for ds in ds_list:  
-            Lenskernel_list.append(wlen(Om, dl, zl, ds))
-        Lenskernel_list = np.array(Lenskernel_list)
-        weights_list = (Lenskernel_list / (area * nbar))
+        dmin = Planck15.comoving_distance(zmin)
+        dmax = Planck15.comoving_distance(zmax)
+        volume_diff = (dmax ** 3 - dmin ** 3) * 4 * np.pi / (3 * npix)
+        weights_list = np.array([wlen(Om, dmin, dmax, ds) for ds in ds_list])
+        weights_int_list = np.array([wlen_int(Om, dmin, dmax, ds) for ds in ds_list])
         
-        Mmap, Nmap = make_massmap(sliced, npix, client=None, vel_flag=False)
+        Mmap = make_massmap(sliced, npix, client=None, vel_flag=False)
         if cat.comm.rank == 0:
             cat.logger.info("mass map computed")
 
-        kappa1bar = make_kappabar(Om, ds_list, zmin, zmax)
-
-        #if cat.comm.rank == 0:
-        #print("length of weights_list: ", len(weights_list))
-        #print("shape of Mmap: ", Mmap.shape)
-        kappa += weights_list.reshape(-1, 1) *  Mmap
-        Nm += Nmap
-        kappabar += kappa1bar
+        kappa += weights_list.reshape(-1, 1) *  (Mmap / rhobar / volume_diff - 1)
+        kappa_int += weights_int_list.reshape(-1, 1) *  (Mmap / rhobar / volume_diff - 1)
 
     if cat.comm.rank == 0:
         cat.logger.info("kappa computation done")
@@ -169,6 +121,7 @@ def main(config_file):
         cat.logger.info("writing to %s", config['destination'])
 
     save_path = os.path.join(datadir, config['destination'])
+    os.makedirs(save_path, exist_ok=True)
     for i, (zs, ds) in enumerate(zip(zs_list, ds_list)):
         std = np.std(cat.comm.allgather(len(kappa[i])))
         mean = np.mean(cat.comm.allgather(len(kappa[i])))
@@ -185,10 +138,9 @@ def main(config_file):
             with bigfile.File(fname, create=True) as ff:
 
                 ds1 = ff.create_from_array("kappa", kappa[i], Nfile=1)
-                ds2 = ff.create_from_array("Nm", Nm[i], Nfile=1)
+                ds2 = ff.create_from_array("kappa_int", kappa_int[i], Nfile=1)
 
                 for d in ds1, ds2:
-                    d.attrs['kappabar'] = kappabar[i]
                     d.attrs['nside'] = nside
                     d.attrs['zlmin'] = zlmin
                     d.attrs['zlmax'] = zlmax
