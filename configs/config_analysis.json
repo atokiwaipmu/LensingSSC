@@ -1,0 +1,5 @@
+{
+  "base_directory": "/lustre/work/akira.tokiwa/Projects/LensingSSC/results",
+  "thetas": [4, 8, 16, 32],
+  "nside": 8192
+}
