@@ -6,7 +6,7 @@ import healpy as hp
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
-from .ConfigData import ConfigData
+from .ConfigData import ConfigData, CatalogHandler
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -58,10 +58,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
     config_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_%s_hp.json' % args.config)
     config = ConfigData.from_json(config_file)
+    cath = CatalogHandler(config.datadir, config.source, config.dataset)
     idx = args.index
 
     set_cosmology()
-    delta, chi1, chi2 = get_mass_sheet(config.cat, idx)
+    delta, chi1, chi2 = get_mass_sheet(cath.cat, idx)
     delta = np.array(delta, dtype="float32")
     delta = hp.reorder(delta, n2r=True)
     delta_4096 = hp.ud_grade(delta, 4096)

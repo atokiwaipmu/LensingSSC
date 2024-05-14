@@ -3,17 +3,14 @@ import json
 import os
 from nbodykit.lab import BigFileCatalog
 from dataclasses import dataclass, field
+from typing import List
 
 @dataclass
-class ConfigData:
-    zs_list: list
-    zlmin: float
-    zlmax: float
+class CatalogHandler:
     datadir: str
     source: str
-    destination: str
     dataset: str
-    cat: 'BigFileCatalog' = field(repr=False, init=False)
+    cat: 'BigFileCatalog' = field(init=False, repr=False)
     npix: int = field(init=False)
     nside: int = field(init=False)
     nbar: float = field(init=False)
@@ -21,6 +18,7 @@ class ConfigData:
     Om: float = field(init=False)
 
     def __post_init__(self):
+        """Initialize the BigFileCatalog and extract its attributes."""
         path = os.path.join(self.datadir, self.source)
         self.cat = BigFileCatalog(path, dataset=self.dataset)
         self.npix = self.cat.attrs['healpix.npix'][0]
@@ -30,15 +28,32 @@ class ConfigData:
         self.Om = self.cat.attrs['OmegaM'][0]
         self.aemitIndex = self.cat.attrs['aemitIndex.edges']
 
+@dataclass
+class ConfigData:
+    zs_list: List[float]
+    zlmin: float
+    zlmax: float
+    datadir: str
+    source: str
+    destination: str
+    dataset: str
+
     @staticmethod
     def from_json(config_file: str) -> 'ConfigData':
+        """Load configuration data from a JSON file."""
+        if not os.path.exists(config_file):
+            raise FileNotFoundError(f"Configuration file {config_file} not found.")
+        
         try:
             with open(config_file, 'r') as file:
                 config = json.load(file)
-        except FileNotFoundError:
-            raise Exception(f"Configuration file {config_file} not found.")
         except json.JSONDecodeError:
-            raise Exception("Invalid JSON in configuration file.")
+            raise ValueError("Invalid JSON in configuration file.")
+
+        required_keys = ['zs', 'zlmin', 'zlmax', 'datadir', 'source', 'destination', 'dataset']
+        if not all(key in config for key in required_keys):
+            missing_keys = [key for key in required_keys if key not in config]
+            raise KeyError(f"Missing required keys in configuration file: {missing_keys}")
 
         return ConfigData(
             zs_list=config['zs'],

@@ -9,7 +9,7 @@ from astropy.cosmology import z_at_value
 from nbodykit.cosmology import Planck15
 from nbodykit.lab import BigFileCatalog
 
-from .ConfigData import ConfigData
+from .ConfigData import ConfigData, CatalogHandler
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -98,25 +98,26 @@ def process_slices(config, ds_list, logger):
 
 def main(config_file):
     config = ConfigData.from_json(config_file)
-    logger = config.cat.logger
+    cath = CatalogHandler(config.datadir, config.source, config.dataset)
+    logger = cath.cat.logger
 
     # Compute comoving distances using Planck15 cosmology
     ds_list = Planck15.comoving_distance(config.zs_list)
 
-    kappa = np.zeros([len(config.zs_list), config.npix], dtype="f8")
-    kappa_int = np.zeros([len(config.zs_list), config.npix], dtype="f8")
+    kappa = np.zeros([len(config.zs_list), cath.npix], dtype="f8")
+    kappa_int = np.zeros([len(config.zs_list), cath.npix], dtype="f8")
     logger.info("pre-allocation done")
     logger.info("memory usage by kappa: %f GB" % ((kappa.nbytes + kappa_int.nbytes) / 1024 ** 3))
 
     logger.info("starting kappa computation")   
     kappa, kappa_int = process_slices(config, ds_list, logger)
     logger.info("kappa computation done")
-    logger.info("writing to %s", config['destination'])
 
-    save_path = os.path.join(config.datadir, config['destination'])
+    save_path = os.path.join(config.datadir, config.destination)
+    logger.info("writing to %s", save_path)
     os.makedirs(save_path, exist_ok=True)
     for i, (zs, ds) in enumerate(zip(config.zs_list, ds_list)):
-        fname = save_path + "/WL-%02.2f-N%04d" % (zs, config.nside)
+        fname = save_path + "/WL-%02.2f-N%04d" % (zs, cath.nside)
         logger.info("started writing source plane %s" % zs)
 
         with bigfile.File(fname, create=True) as ff:
@@ -125,13 +126,13 @@ def main(config_file):
             ds2 = ff.create_from_array("kappa_int", kappa_int[i], Nfile=1)
 
             for d in ds1, ds2:
-                d.attrs['nside'] = config.nside
+                d.attrs['nside'] = cath.nside
                 d.attrs['zlmin'] = config.zlmin
                 d.attrs['zlmax'] = config.zlmax
                 d.attrs['zs'] = zs
                 d.attrs['ds'] = ds
-                d.attrs['nbar'] = config.nbar
-
+                d.attrs['nbar'] = cath.nbar
+                
         # use bigfile because it allows concurrent write to different datasets.
         logger.info("source plane at %g written. " % zs)
 
