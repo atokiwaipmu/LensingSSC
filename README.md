@@ -65,5 +65,7 @@ On NERSC HPSS
 
 ### Codes
 - Generate with born approximation: Use [wlen.py](https://github.com/bccp/simplehod/blob/master/scripts/wlen.py)
+- Another code to generate lensing maps: [preproc-kappa](https://github.com/HalfDomeSims/preproc-kappa.git)
+- Code to anlayze the lensing maps: [HOS-Y1](https://github.com/LSSTDESC/HOS-Y1-prep.git)
 - Sample [notebook](https://github.com/liuxx479/CorrelatedSims/blob/master/hack_crowncanyon_kappa.ipynb) to test the resulting map
 - Sample [job submission script](https://github.com/liuxx479/CorrelatedSims/blob/master/sbatch_gen.py ) (this is a code to generate submission script..)
