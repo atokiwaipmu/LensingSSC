@@ -14,7 +14,8 @@ This repository contains the code used to produce the results in the paper "Lens
 2. Install classy via cobaya:
     ```sh
     python -m pip install cobaya --upgrade
-    cobaya-install cosmo -p /path/to/packages
+    mkdir ./lib
+    cobaya-install cosmo -p ./lib
     ```
 
 ### Install the remaining dependencies and package
