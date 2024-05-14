@@ -2,6 +2,34 @@
 
 This repository contains the code used to produce the results in the paper "Lensing Super Sample Covariance" by Akira Tokiwa, Adrian E. Bayer, Jia Liu and Masahiro Takada.
 
+## Installation
+
+### Prerequisites
+
+1. Install `nbodykit` via conda:
+   ```sh
+   conda install -c bccp nbodykit
+    ```
+
+2. Install classy via cobaya:
+    ```sh
+    python -m pip install cobaya --upgrade
+    cobaya-install cosmo -p /path/to/packages
+    ```
+
+### Install the remaining dependencies and package
+
+1. Clone the repository:
+    ```sh
+    git clone https://github.com/atokiwaipmu/LensingSSC.git
+    cd LensingSSC
+    ```
+
+2. Install the remaining dependencies and the package:
+    ```sh
+    python setup.py install
+    ```
+
 ## Goal of this research
 - is our nominal setup of 1Gpc box sufficient in capturing SSC for HOS
 - any HOS that are less sensitive to SSC?
