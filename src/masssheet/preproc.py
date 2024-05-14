@@ -9,7 +9,7 @@ from astropy.cosmology import FlatLambdaCDM
 from .ConfigData import ConfigData
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def set_cosmology(h=0.6774, om=0.309):
     """
