@@ -18,7 +18,7 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 class SheetMapper:
     """Handles operations related to sheet mapping for cosmological data visualization."""
 
-    def __init__(self, nside=4096):
+    def __init__(self, nside=8192):
         self.nside = nside
         self.maps = {}
 
@@ -26,19 +26,19 @@ class SheetMapper:
         """Create a new map with the given name and data type."""
         self.maps[map_name] = np.zeros(12 * self.nside ** 2, dtype=dtype)
 
-    def add_sheet_to_map(self, map_name, sheet, wlen, chi1, chi2, cosmology):
+    def add_sheet_to_map(self, map_name, sheet, wlen, chi1, chi2, cosmology, zs):
         """Add a sheet to the map using a weak lensing integral."""
         chi = (chi1 + chi2) / 2
         dchi = chi2 - chi1
-        wlen_integral = wlen(chi, cosmology) * dchi
+        wlen_integral = wlen(chi, cosmology, zs) * dchi
         self.maps[map_name] += wlen_integral * sheet
 
-    def add_sheet_to_map_int(self, map_name, sheet, wlen, chi1, chi2, cosmology):
+    def add_sheet_to_map_int(self, map_name, sheet, wlen, chi1, chi2, cosmology, zs):
         """Add a sheet to the map using an integral approach over 100 points."""
         nchi = 100
         chi = np.linspace(chi1, chi2, nchi)
         dchi = chi[1] - chi[0]
-        wlen_integral = wlen(chi, cosmology).sum() * dchi
+        wlen_integral = wlen(chi, cosmology, zs).sum() * dchi
         self.maps[map_name] += wlen_integral * sheet
 
 
@@ -60,7 +60,7 @@ def wlen_chi_kappa(chi, cosmo, zs):
     return 3 / 2 * cosmo.Om0 * H0 ** 2 * (1 + z) * chi * dchi
 
 
-def main(data_path, save_path, r4096=False):
+def main(data_path, save_path, zs, i_start=20, i_end=99, r4096=False):
     """
     Main function to compute weak lensing convergence maps.
     
@@ -76,7 +76,7 @@ def main(data_path, save_path, r4096=False):
     logging.info(f"Using cosmology: H0={cosmo.H0}, Om0={cosmo.Om0}")
 
     # Initialize SheetMapper and create maps
-    mapper = SheetMapper()
+    mapper = SheetMapper() if not r4096 else SheetMapper(nside=4096)
     mapper.new_map("kappa")
     mapper.new_map("kappa_int")
 
@@ -86,13 +86,12 @@ def main(data_path, save_path, r4096=False):
     rank = comm.Get_rank()
 
     # Load and process delta sheets
-    i_start, i_end = 20, 99
     for i in range(i_start, i_end):
         if (i - i_start) % size == rank:
             logging.info(f"Rank {rank} processing delta sheet index {i}")
             delta, chi1, chi2 = load_delta_sheet(data_path, i, r4096)
-            mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo)
-            mapper.add_sheet_to_map_int("kappa_int", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo)
+            mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
+            mapper.add_sheet_to_map_int("kappa_int", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
 
     # Gather local maps
     local_kappa = mapper.maps["kappa"]
@@ -110,8 +109,8 @@ def main(data_path, save_path, r4096=False):
     if rank == 0:
         global_kappa = hp.reorder(global_kappa, r2n=True)
         global_kappa_int = hp.reorder(global_kappa_int, r2n=True)
-        hp.write_map(os.path.join(save_path, "kappa.fits"), global_kappa)
-        hp.write_map(os.path.join(save_path, "kappa_int.fits"), global_kappa_int)
+        hp.write_map(os.path.join(save_path, "kappa.fits"), global_kappa, dtype=np.float32)
+        hp.write_map(os.path.join(save_path, "kappa_int.fits"), global_kappa_int, dtype=np.float32)
         logging.info("Output maps saved to %s", save_path)
         logging.info("Kappa map min/max: %f/%f", global_kappa.min(), global_kappa.max())
         logging.info("Kappa_int map min/max: %f/%f", global_kappa_int.min(), global_kappa_int.max())
@@ -136,4 +135,8 @@ if __name__ == "__main__":
         save_path += "-4096"
     os.makedirs(save_path, exist_ok=True)
 
-    main(data_path, save_path, args.r4096)
+    for zs in config.zs_list:
+        logging.info(f"Computing weak lensing convergence maps for zs={zs}")
+        save_path_zs = os.path.join(save_path, f"zs-{zs}")
+        os.makedirs(save_path_zs, exist_ok=True)
+        main(data_path, save_path_zs, zs, r4096=args.r4096)

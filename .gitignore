@@ -163,7 +163,3 @@ data/
 job/
 references/
 results/
-
-src/refactored/
-src/test/
-src/utils/
