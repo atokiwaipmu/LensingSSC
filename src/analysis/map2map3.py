@@ -49,13 +49,13 @@ if __name__ == '__main__':
     config = load_config(args.config_file)
 
     # Using the base directory from JSON and appending the config identifier
-    dir_results = os.path.join(config['base_directory'], args.config_id)
+    dir_results = os.path.join(config['result_dir'], args.config_id)
     logging.info(f"Using directory: {dir_results}")
     # Using glob to find files of the specified data format
-    filenames = glob(os.path.join(dir_results, "wlen_hp", "*", f"*.{args.dataformat}"))
+    filenames = glob(os.path.join(dir_results, "zs-*", f"kappa.{args.dataformat}"))
     logging.info(f"Found {len(filenames)} files.")
     for f in filenames:
         logging.info(f)
 
-    main(dir_results, filenames)
+    main(dir_results, filenames, nside=config['nside'], thetas=config['thetas'], dataformat=args.dataformat)
     logging.info("All done.")

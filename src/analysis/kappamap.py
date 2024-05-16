@@ -34,10 +34,13 @@ class KappaMaps:
         except Exception as e:
             raise IOError(f"Failed to read .npy files: {e}")
 
-    def readmaps_healpy(self):
+    def readmaps_healpy(self, n2r=False):
         """Read maps using healpy's read_map function."""
         try:
-            self.mapbins = [hp.read_map(l) for l in self.filenames]
+            if n2r:
+                self.mapbins = [hp.reorder(hp.read_map(l), n2r=True) for l in self.filenames]
+            else:
+                self.mapbins = [hp.read_map(l) for l in self.filenames]
         except Exception as e:
             raise IOError(f"Failed to read maps with healpy: {e}")
         
@@ -69,11 +72,28 @@ class KappaCodes(KappaMaps):
     A subclass of KappaMaps to handle additional operations like map analysis and statistics.
     """
     
-    def __init__(self, dir_results, filenames, nside):
+    def __init__(self, dir_results, filenames, nside, lmax=5000):
         super().__init__(filenames, nside)
         self.Nmaps = len(self.filenames)
         self.dir_results = os.path.abspath(dir_results)
         os.makedirs(self.dir_results, exist_ok=True)
+        self.lmax = lmax
+
+    def run_Clkk(self, Nmap1):
+        """
+        Calculate angular power spectra of the maps.
+        """
+        map1 = self.mapbins[Nmap1]
+        Cl = anafast(map1=map1, lmax=self.lmax)
+        
+        fn_header = os.path.basename(self.filenames[Nmap1]).split('.')[0]
+        dir_Clkk = os.path.join(self.dir_results, 'Clkk')
+        os.makedirs(dir_Clkk, exist_ok=True)
+        
+        fn_out = os.path.join(dir_Clkk, f'{fn_header}_Clkk_ell_0_{self.lmax}.npz')
+        
+        np.savez(fn_out, ell=np.arange(self.lmax + 1), Cl=Cl)
+        return Cl
         
     def run_map2alm(self, Nmap1, Nmap2=None, is_cross=False):
         """

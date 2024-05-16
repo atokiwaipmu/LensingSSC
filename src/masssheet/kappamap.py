@@ -11,7 +11,7 @@ from astropy import units as u
 from astropy.cosmology import FlatLambdaCDM
 from mpi4py import MPI
 
-from .ConfigData import ConfigData
+from .ConfigData import ConfigData, ConfigAnalysis
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -124,13 +124,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config_file = os.path.join(
-        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs",
-        f'config_{args.config}_hp.json'
+        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config.json'
     )
     config = ConfigData.from_json(config_file)
 
-    data_path = os.path.join(config.datadir, "mass_sheets")
-    save_path = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/results", args.config)
+    config_analysis_file = os.path.join(
+        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_analysis.json'
+    )
+    config_analysis = ConfigAnalysis.from_json(config_analysis_file)
+
+    if args.config == 'tiled':
+        datadir = config.tileddir
+    elif args.config == 'bigbox':
+        datadir = config.bigboxdir
+    data_path = os.path.join(datadir, "mass_sheets")
+    save_path = os.path.join(config_analysis.resultsdir, args.config)
     if args.r4096:
         save_path += "-4096"
     os.makedirs(save_path, exist_ok=True)

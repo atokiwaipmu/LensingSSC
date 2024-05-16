@@ -1,16 +1,12 @@
+
+import os
+import numpy as np
+import logging
 from classy import Class
 
-######## check TT, Pk (z=0), Clkk (z=1) from class vs camb
-ombh2 = 0.02247
-omch2 = 0.11923
+from ..masssheet.ConfigData import ConfigData, ConfigAnalysis, ConfigCosmo
 
-# LCDM parameters
-A_s = 2.10732e-9
-h=0.677
-OmegaB = ombh2/h**2#0.046
-OmegaM = omch2/h**2#0.309167
-n_s = 0.96824
-tau = 0.054 ## only for primary CMB, not used for now, for simplicity
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def calc_cl(z_s, 
     ombh2 = 0.02247, 
@@ -85,3 +81,22 @@ def calc_cl(z_s,
     clkk_lin = 1.0 / 4 * (ell + 2.0) * (ell + 1.0) * ell * (ell - 1.0) * clphiphi_lin
 
     return ell, clkk, clkk_lin
+
+if __name__ == '__main__':
+    config_data_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_data.json')
+    config_data = ConfigData.from_json(config_data_file)
+
+    config_analysis_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_analysis.json')
+    config_analysis = ConfigAnalysis.from_json(config_analysis_file)
+
+    config_cosmo_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_cosmo.json')
+    config_cosmo = ConfigCosmo.from_json(config_cosmo_file)
+
+    halofit_dir = os.path.join(config_analysis.resultsdir, 'halofit')
+    os.makedirs(halofit_dir, exist_ok=True)
+
+    for zs in config_data.zs_list:
+        fn_out = os.path.join(halofit_dir , f'kappa_zs{zs}_Clkk_ell_0_{config_analysis.lmax}.npz')
+        ell, clkk, clkk_lin = calc_cl(zs, ombh2=config_cosmo.ombh2, omch2=config_cosmo.omch2, h=config_cosmo.h, A_s=config_cosmo.A_s, n_s=config_cosmo.n_s, lmax=config_analysis.lmax)
+        np.savez(fn_out, ell=ell, clkk=clkk, clkk_lin=clkk_lin)
+        logging.info(f"Saved Clkk values to {fn_out}")

@@ -56,9 +56,13 @@ if __name__ == "__main__":
     parser.add_argument('config', type=str, choices=['tiled', 'bigbox'], help='Configuration file')
     parser.add_argument('index', type=int, help='Index of mass sheet')
     args = parser.parse_args()
-    config_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_%s_hp.json' % args.config)
+    config_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config.json')
     config = ConfigData.from_json(config_file)
-    cath = CatalogHandler(config.datadir, config.source, config.dataset)
+    if args.config == 'tiled':
+        datadir = config.tileddir
+    elif args.config == 'bigbox':
+        datadir = config.bigboxdir
+    cath = CatalogHandler(datadir, config.source, config.dataset)
     idx = args.index
 
     set_cosmology()
@@ -67,7 +71,7 @@ if __name__ == "__main__":
     delta = hp.reorder(delta, n2r=True)
     delta_4096 = hp.ud_grade(delta, 4096)
 
-    save_path = os.path.join(config.datadir, "mass_sheets")
+    save_path = os.path.join(datadir, "mass_sheets")
     os.makedirs(save_path, exist_ok=True)
     np.savez(f"{save_path}/delta-sheet-{idx}.npz", delta=delta, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
     np.savez(f"{save_path}/delta-sheet-4096-{idx}.npz", delta=delta_4096, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))

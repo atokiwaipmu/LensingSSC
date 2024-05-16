@@ -1,9 +1,10 @@
 
 import json
 import numpy as np
+import healpy as hp
 import os
 import sys
-from .kappamap import KappaCodes
+from .kappamap import KappaMaps
 from glob import glob
 import logging
 import argparse
@@ -16,20 +17,25 @@ def load_config(file_path):
     with open(file_path, 'r') as file:
         return json.load(file)
     
-def main(dir_results, filenames, nside=8192, lmax=5000, dataformat='npy'):
-    logging.info("Starting the kappa maps processing.")
-    kappa_maps = KappaCodes(dir_results=dir_results, filenames=filenames, nside=nside, lmax=lmax)
+def main(filenames, sl, nside=8192, dataformat='fits'):
+    logging.info("Starting the kappa maps smoothing.")
+    kappa_maps = KappaMaps(filenames=filenames, nside=nside)
 
     try:
         if dataformat == 'fits':
-            kappa_maps.readmaps_healpy(n2r=True)
+            kappa_maps.readmaps_healpy()
         elif dataformat == 'npy':
             kappa_maps.readmaps_npy()
 
         for i, map_i in enumerate(kappa_maps.mapbins):
             logging.info(f'Processing file: {filenames[i]}')
-            kappa_maps.run_Clkk(Nmap1=i)
-            logging.info('Clkk done.')
+            smoothed_map = kappa_maps.smoothing(mapbin=map_i, sl=sl)
+            smoothed_map_file = filenames[i].replace(f".{dataformat}", f"_smoothed.{dataformat}")
+            if dataformat == 'fits':
+                hp.write_map(smoothed_map_file, smoothed_map, dtype=np.float32)
+            elif dataformat == 'npy':
+                np.save(smoothed_map_file, smoothed_map)
+            logging.info('Smoothing done.')
 
     except Exception as e:
         logging.error(f"Error during map processing: {e}")
@@ -53,5 +59,6 @@ if __name__ == '__main__':
     for f in filenames:
         logging.info(f)
 
-    main(dir_results, filenames, nside=config_analysis.nside, lmax=config_analysis.lmax, dataformat=args.dataformat)
+    for sl in config_analysis.sl_arcmin:
+        main(filenames, sl, nside=config_analysis.nside, dataformat=args.dataformat)
     logging.info("All done.")

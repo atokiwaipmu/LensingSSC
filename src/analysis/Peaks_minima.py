@@ -2,8 +2,16 @@
 
 import numpy as np
 import healpy as hp
+import multiprocessing as mp
+from tqdm import tqdm
 
-def find_extrema(kappa_map,minima=False,lonlat=False):
+def find_extrema_worker(pixel_val, neighbour_vals, minima=False):
+    if minima:
+        return np.all(np.tile(pixel_val, [8, 1]).T < neighbour_vals, axis=-1)
+    else:
+        return np.all(np.tile(pixel_val, [8, 1]).T > neighbour_vals, axis=-1)
+
+def find_extrema(kappa_map, minima=False, lonlat=False):
     """find extrema in a smoothed masked healpix map
        default is to find peaks, finds minima with minima=True
     
@@ -23,30 +31,38 @@ def find_extrema(kappa_map,minima=False,lonlat=False):
        
     """
 
-    #first create an array of all neighbours for all valid healsparse pixels
-    nside = hp.get_nside(kappa_map) #get nside
-    ipix = np.arange(hp.nside2npix(nside))[kappa_map.mask==False] #list all pixels and remove masked ones
-    neighbours = hp.get_all_neighbours(nside, ipix) #find neighbours for all pixels we care about
+    # First create an array of all neighbours for all valid healsparse pixels
+    nside = hp.get_nside(kappa_map) # get nside
+    ipix = np.arange(hp.nside2npix(nside))[kappa_map.mask == False] # list all pixels and remove masked ones
+    neighbours = hp.get_all_neighbours(nside, ipix) # find neighbours for all pixels we care about
 
-    #get kappa values for each pixel in the neighbour array
+    # Get kappa values for each pixel in the neighbour array
     neighbour_vals = kappa_map.data[neighbours.T]
-    #get kappa values for all valid healsparse pixels
+    # Get kappa values for all valid healsparse pixels
     pixel_val = kappa_map.data[ipix]
 
-    #compare all valid healsparse pixels with their neighbours to find extrema
-    if minima:
-        extrema = np.all(np.tile(pixel_val,[8,1]).T < neighbour_vals,axis=-1)
-    else:
-        extrema = np.all(np.tile(pixel_val,[8,1]).T > neighbour_vals,axis=-1)
+    # Initialize the progress bar
+    with tqdm(total=len(pixel_val), desc="Processing Extrema") as pbar:
+        with mp.Pool(processes=mp.cpu_count()) as pool:
+            # Create a callback to update the progress bar
+            def update(*a):
+                pbar.update()
+            
+            # Start the parallel computation
+            extrema = pool.starmap_async(
+                find_extrema_worker, 
+                [(pixel_val[i], neighbour_vals[i], minima) for i in range(len(pixel_val))],
+                callback=update
+            ).get()
 
-        
-    #print the number of extrema identified
+    extrema = np.array(extrema)
+    # Print the number of extrema identified
     if minima:
         print(f'number of minima identified: {np.where(extrema)[0].shape[0]}')
     else:
         print(f'number of peaks identified: {np.where(extrema)[0].shape[0]}')
-
-    extrema_pos = np.asarray(hp.pix2ang(nside, ipix[extrema],lonlat=lonlat)).T #find the extrema positions
-    extrema_amp = kappa_map[ipix][extrema].data #find the extrema amplitudes
+        
+    extrema_pos = np.asarray(hp.pix2ang(nside, ipix[extrema], lonlat=lonlat)).T # find the extrema positions
+    extrema_amp = kappa_map[ipix][extrema].data # find the extrema amplitudes
     
     return extrema_pos, extrema_amp

@@ -1,5 +1,8 @@
 {
-  "base_directory": "/lustre/work/akira.tokiwa/Projects/LensingSSC/results",
-  "thetas": [4, 8, 16, 32],
-  "nside": 8192
+  "resultsdir": "/lustre/work/akira.tokiwa/Projects/LensingSSC/results",
+  "imgdir": "/lustre/work/akira.tokiwa/Projects/LensingSSC/img",
+  "sl_arcmin": [5, 8, 10],
+  "nside": 8192,
+  "void_val": -1.6375e+30,
+  "lmax": 5000
 }
