@@ -62,7 +62,7 @@ class KappaMaps:
         sl_rad = sl / 60 / 180 * np.pi
         kappa_masked = hp.ma(mapbin)
         try:
-            smoothed_map = hp.smoothing(kappa_masked, sigma=sl_rad, verbose=False)
+            smoothed_map = hp.smoothing(kappa_masked, sigma=sl_rad, nest=True)
             return smoothed_map
         except Exception as e:
             raise RuntimeError(f"Error during smoothing: {e}")
@@ -86,56 +86,19 @@ class KappaCodes(KappaMaps):
         map1 = self.mapbins[Nmap1]
         Cl = anafast(map1=map1, lmax=self.lmax)
         
-        fn_header = os.path.basename(self.filenames[Nmap1]).split('.')[0]
+        suffix = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_Clkk_ell_0_{self.lmax}.npz')
         dir_Clkk = os.path.join(self.dir_results, 'Clkk')
         os.makedirs(dir_Clkk, exist_ok=True)
         
-        fn_out = os.path.join(dir_Clkk, f'{fn_header}_Clkk_ell_0_{self.lmax}.npz')
+        fn_out = os.path.join(dir_Clkk, suffix)
         
         np.savez(fn_out, ell=np.arange(self.lmax + 1), Cl=Cl)
         return Cl
-        
-    def run_map2alm(self, Nmap1, Nmap2=None, is_cross=False):
-        """
-        Calculate angular power spectra of the maps.
-        """
-        map1 = self.mapbins[Nmap1]
-        map2 = self.mapbins[Nmap2] if is_cross else None
-        Cl = anafast(map1=map1, map2=map2, lmax=5000, iter=1, alm=False, pol=False, use_weights=False, gal_cut=0)
-        Cl *= 8.0
-        
-        fn_header = os.path.basename(self.filenames[Nmap1]).split('.')[0]
-        dir_map2 = os.path.join(self.dir_results, 'map2')
-        os.makedirs(dir_map2, exist_ok=True)
-        
-        suffix = f'_Nmap{Nmap1 + 1}_{Nmap2 + 1}' if is_cross else f'_Nmap{Nmap1 + 1}'
-        fn_out = os.path.join(dir_map2, f'{fn_header}{suffix}_map2_Cell_ell_0_5000.dat')
-        
-        np.savetxt(fn_out, Cl)
-        return Cl
 
-    def run_map3(self, Nmap1, thetas, is_cross=False):
-        """
-        Perform third-order map statistics.
-        """
-        fn_header = os.path.basename(self.filenames[Nmap1]).split('.')[0]
-        dir_map3 = os.path.join(self.dir_results, 'map3')
-        os.makedirs(dir_map3, exist_ok=True)
-        
-        fn_out = os.path.join(dir_map3, f'{fn_header}_map3_DV_thetas.dat')
-        measureMap3FromKappa(self.mapbins[Nmap1], thetas=thetas, nside=self.nside, fn_out=fn_out, verbose=False, doPlots=False)
-        
-        results_map3 = np.loadtxt(fn_out)
-        return results_map3
-
-    def run_PDFPeaksMinima(self, map1_smooth, Nmap1, map2_smooth=None, Nmap2=None, is_cross=False):
+    def run_PDFPeaksMinima(self, map1_smooth, Nmap1):
         """
         Calculate the PDF, peaks, and minima for a smoothed map.
-        """
-        # Merge maps if cross-analysis is enabled
-        if is_cross and map2_smooth is not None:
-            map1_smooth = np.append(map1_smooth, map2_smooth, axis=0)
-            
+        """            
         # Calculate histogram
         bins = np.linspace(-0.1 - 0.001, 0.1 + 0.001, 201)
         counts_smooth, _ = np.histogram(map1_smooth, density=True, bins=bins)
@@ -147,7 +110,6 @@ class KappaCodes(KappaMaps):
         peaks = np.vstack([peak_pos.T, peak_amp]).T
         minima = np.vstack([minima_pos.T, minima_amp]).T
         
-        fn_header = os.path.basename(self.filenames[Nmap1]).split('.')[0]
         dir_PDF = os.path.join(self.dir_results, 'PDF')
         dir_peaks = os.path.join(self.dir_results, 'peaks')
         dir_minima = os.path.join(self.dir_results, 'minima')
@@ -156,13 +118,13 @@ class KappaCodes(KappaMaps):
         os.makedirs(dir_peaks, exist_ok=True)
         os.makedirs(dir_minima, exist_ok=True)
 
-        fn_out_counts = os.path.join(dir_PDF, f'{fn_header}_Nmap{Nmap1 + 1}_Counts_kappa_width0.1_200Kappabins.dat')
-        fn_out_minima = os.path.join(dir_peaks, f'{fn_header}_Nmap{Nmap1 + 1}_minima_posRADEC_amp.dat')
-        fn_out_peaks = os.path.join(dir_minima, f'{fn_header}_Nmap{Nmap1 + 1}_peaks_posRADEC_amp.dat')
+        fn_out_counts = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_Counts_kappa_width0.1_200Kappabins.dat')
+        fn_out_minima = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_minima_posRADEC_amp.dat')
+        fn_out_peaks = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_peaks_posRADEC_amp.dat')
 
-        np.savetxt(fn_out_counts, counts_smooth)
-        np.savetxt(fn_out_minima, minima)
-        np.savetxt(fn_out_peaks, peaks)
+        np.savetxt(os.path.join(dir_PDF, fn_out_counts), counts_smooth)
+        np.savetxt(os.path.join(dir_minima, fn_out_minima), minima)
+        np.savetxt(os.path.join(dir_peaks, fn_out_peaks), peaks)
 
         return counts_smooth, peaks, minima
 

@@ -96,7 +96,7 @@ if __name__ == '__main__':
     os.makedirs(halofit_dir, exist_ok=True)
 
     for zs in config_data.zs_list:
-        fn_out = os.path.join(halofit_dir , f'kappa_zs{zs}_Clkk_ell_0_{config_analysis.lmax}.npz')
+        fn_out = os.path.join(halofit_dir , f'kappa_zs{zs:.1f}_Clkk_ell_0_{config_analysis.lmax}.npz')
         ell, clkk, clkk_lin = calc_cl(zs, ombh2=config_cosmo.ombh2, omch2=config_cosmo.omch2, h=config_cosmo.h, A_s=config_cosmo.A_s, n_s=config_cosmo.n_s, lmax=config_analysis.lmax)
         np.savez(fn_out, ell=ell, clkk=clkk, clkk_lin=clkk_lin)
         logging.info(f"Saved Clkk values to {fn_out}")
