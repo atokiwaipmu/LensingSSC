@@ -13,7 +13,7 @@ from ..masssheet.ConfigData import ConfigAnalysis
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def process_map(mapfile: str, sl_arcmin: float) -> None:
-    smoothed_map_file = mapfile.replace(".fits", f"_smoothed_s{sl_arcmin}.fits")
+    smoothed_map_file = mapfile.replace(".fits", f"_smoothed_s{sl_arcmin}.fits").replace("data", "smoothed")
     if os.path.exists(smoothed_map_file):
         logging.info(f"File already exists: {smoothed_map_file}")
         return
@@ -41,10 +41,8 @@ def main() -> None:
     tasks = []
     for config_id in ['tiled', 'bigbox']:
         logging.info(f"Config ID: {config_id}")
-        dir_results = os.path.join(config_analysis.resultsdir, config_id)
-        logging.info(f"Using directory: {dir_results}")
-
-        filenames = sorted(glob(os.path.join(dir_results, "data", "kappa_zs*.fits")))
+        dir_data = os.path.join(config_analysis.resultsdir, config_id, "data")
+        filenames = sorted(glob(os.path.join(dir_data, "kappa_zs*.fits")))
         logging.info(f"Found {len(filenames)} files.")
         
         # Create tasks for each combination of config_id, mapbin, and smoothing length
