@@ -13,15 +13,20 @@ from ..masssheet.ConfigData import ConfigAnalysis
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def process_map(mapfile: str, sl_arcmin: float) -> None:
-    try:
-        sl_rad = sl_arcmin / 60 / 180 * np.pi
-        kappa_masked = hp.ma(hp.reorder(hp.read_map(mapfile), n2r=True))
-        smoothed_map = hp.smoothing(kappa_masked , sigma=sl_rad)
-        smoothed_map_file = mapfile.replace(".fits", f"_smoothed_s{sl_arcmin}.fits")
-        hp.write_map(smoothed_map_file, smoothed_map, dtype=np.float32)
-        logging.info(f"Processed and saved: {smoothed_map_file}")
-    except Exception as e:
-        logging.error(f"Error processing {mapfile} with smoothing length {sl_arcmin}: {e}")
+    smoothed_map_file = mapfile.replace(".fits", f"_smoothed_s{sl_arcmin}.fits")
+    if os.path.exists(smoothed_map_file):
+        logging.info(f"File already exists: {smoothed_map_file}")
+        return
+    else:
+        logging.info(f"Processing map: {mapfile}")
+        try:
+            sl_rad = sl_arcmin / 60 / 180 * np.pi
+            kappa_masked = hp.ma(hp.reorder(hp.read_map(mapfile), n2r=True))
+            smoothed_map = hp.smoothing(kappa_masked , sigma=sl_rad)
+            hp.write_map(smoothed_map_file, smoothed_map, dtype=np.float32)
+            logging.info(f"Processed and saved: {smoothed_map_file}")
+        except Exception as e:
+            logging.error(f"Error processing {mapfile} with smoothing length {sl_arcmin}: {e}")
 
 def worker(params: Tuple[str, np.ndarray, float]) -> None:
     filename, sl_arcmin = params

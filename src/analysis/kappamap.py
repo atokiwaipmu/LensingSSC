@@ -4,11 +4,12 @@ import os
 import numpy as np
 import healpy as hp
 from healpy import anafast
+from typing import Tuple, Any
+
 # Uncomment the following line if healsparse is needed
 # import healsparse
 
-from .aperture_mass_computer import measureMap3FromKappa
-from .Peaks_minima import find_extrema
+from .find_extrema import find_extrema, find_extrema_xor
 
 class KappaMaps:
     """
@@ -79,52 +80,90 @@ class KappaCodes(KappaMaps):
         os.makedirs(self.dir_results, exist_ok=True)
         self.lmax = lmax
 
-    def run_Clkk(self, Nmap1):
-        """
-        Calculate angular power spectra of the maps.
-        """
+    def run_Clkk(self, Nmap1: int) -> np.ndarray:
         map1 = self.mapbins[Nmap1]
+        if not isinstance(map1, np.ndarray):
+            raise TypeError(f"Expected np.ndarray, got {type(map1)}")
         Cl = anafast(map1=map1, lmax=self.lmax)
-        
         suffix = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_Clkk_ell_0_{self.lmax}.npz')
         dir_Clkk = os.path.join(self.dir_results, 'Clkk')
-        os.makedirs(dir_Clkk, exist_ok=True)
-        
-        fn_out = os.path.join(dir_Clkk, suffix)
-        
-        np.savez(fn_out, ell=np.arange(self.lmax + 1), Cl=Cl)
+        self._save_results(dir_Clkk, suffix, {'ell': np.arange(self.lmax + 1), 'Cl': Cl})
         return Cl
 
-    def run_PDFPeaksMinima(self, map1_smooth, Nmap1):
-        """
-        Calculate the PDF, peaks, and minima for a smoothed map.
-        """            
-        # Calculate histogram
+    def run_PDF(self, map1_smooth: np.ndarray, Nmap1: int) -> np.ndarray:
         bins = np.linspace(-0.1 - 0.001, 0.1 + 0.001, 201)
-        counts_smooth, _ = np.histogram(map1_smooth, density=True, bins=bins)
-
+        counts_smooth = self._calculate_pdf(map1_smooth, bins)
+        fn_out_counts = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_Counts_kappa_width0.1_200Kappabins.dat')
+        self._save_results(os.path.join(self.dir_results, 'PDF'), fn_out_counts, counts_smooth)
+        return counts_smooth
+    
+    def run_PeaksMinima(self, map1_smooth: np.ndarray, Nmap1: int) -> Tuple[np.ndarray, np.ndarray]:
         map1_smooth_ma = hp.ma(map1_smooth)
-        peak_pos, peak_amp = find_extrema(map1_smooth_ma, lonlat=True)
-        minima_pos, minima_amp = find_extrema(map1_smooth_ma, minima=True, lonlat=True)
+        if not isinstance(map1_smooth_ma, np.ma.MaskedArray):
+            raise TypeError(f"Expected np.ma.MaskedArray, got {type(map1_smooth_ma)}")
+        peaks, minima = self._calculate_PeaksMinima(map1_smooth_ma)
+        fn_out_peaks = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_peaks_posRADEC_amp.dat')
+        fn_out_minima = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_minima_posRADEC_amp.dat')
+        self._save_results(os.path.join(self.dir_results, 'peaks'), fn_out_peaks, peaks)
+        self._save_results(os.path.join(self.dir_results, 'minima'), fn_out_minima, minima)
+        return peaks, minima
+
+    def run_peaks(self, map1_smooth: np.ndarray, Nmap1: int) -> np.ndarray:
+        map1_smooth_ma = hp.ma(map1_smooth)
+        if not isinstance(map1_smooth_ma, np.ma.MaskedArray):
+            raise TypeError(f"Expected np.ma.MaskedArray, got {type(map1_smooth_ma)}")
+        peaks = self._calculate_peaks(map1_smooth_ma)
+        fn_out_peaks = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_peaks_posRADEC_amp.dat')
+        self._save_results(os.path.join(self.dir_results, 'peaks'), fn_out_peaks, peaks)
+        return peaks
+
+    def run_minima(self, map1_smooth: np.ndarray, Nmap1: int) -> np.ndarray:
+        map1_smooth_ma = hp.ma(map1_smooth)
+        if not isinstance(map1_smooth_ma, np.ma.MaskedArray):
+            raise TypeError(f"Expected np.ma.MaskedArray, got {type(map1_smooth_ma)}")
+        minima = self._calculate_minima(map1_smooth_ma)
+        fn_out_minima = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_minima_posRADEC_amp.dat')
+        self._save_results(os.path.join(self.dir_results, 'minima'), fn_out_minima, minima)
+        return minima
         
+    def _calculate_pdf(self, map_smooth: np.ndarray, bins: np.ndarray) -> np.ndarray:
+        """
+        Calculate the probability density function (PDF) for a smoothed map.
+        """
+        counts_smooth, _ = np.histogram(map_smooth, density=True, bins=bins)
+        return counts_smooth
+    
+    def _calculate_PeaksMinima(self, map_smooth_ma: np.ma.MaskedArray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Calculate the peaks and minima for a smoothed masked map.
+        """
+        peak_pos, peak_amp, minima_pos, minima_amp = find_extrema(map_smooth_ma, lonlat=True, nside=self.nside)
         peaks = np.vstack([peak_pos.T, peak_amp]).T
         minima = np.vstack([minima_pos.T, minima_amp]).T
-        
-        dir_PDF = os.path.join(self.dir_results, 'PDF')
-        dir_peaks = os.path.join(self.dir_results, 'peaks')
-        dir_minima = os.path.join(self.dir_results, 'minima')
-        
-        os.makedirs(dir_PDF, exist_ok=True)
-        os.makedirs(dir_peaks, exist_ok=True)
-        os.makedirs(dir_minima, exist_ok=True)
+        return peaks, minima
 
-        fn_out_counts = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_Counts_kappa_width0.1_200Kappabins.dat')
-        fn_out_minima = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_minima_posRADEC_amp.dat')
-        fn_out_peaks = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_peaks_posRADEC_amp.dat')
+    def _calculate_peaks(self, map_smooth_ma: np.ma.MaskedArray, lonlat: bool = True) -> np.ndarray:
+        """
+        Calculate the peaks for a smoothed masked map.
+        """
+        peak_pos, peak_amp = find_extrema_xor(map_smooth_ma, lonlat=lonlat, nside=self.nside)
+        peaks = np.vstack([peak_pos.T, peak_amp]).T
+        return peaks
 
-        np.savetxt(os.path.join(dir_PDF, fn_out_counts), counts_smooth)
-        np.savetxt(os.path.join(dir_minima, fn_out_minima), minima)
-        np.savetxt(os.path.join(dir_peaks, fn_out_peaks), peaks)
+    def _calculate_minima(self, map_smooth_ma: np.ma.MaskedArray, lonlat: bool = True) -> np.ndarray:
+        """
+        Calculate the minima for a smoothed masked map.
+        """
+        minima_pos, minima_amp = find_extrema_xor(map_smooth_ma, minima=True, lonlat=lonlat, nside=self.nside)
+        minima = np.vstack([minima_pos.T, minima_amp]).T
+        return minima
 
-        return counts_smooth, peaks, minima
-
+    def _save_results(self, directory: str, filename: str, data: Any):
+        """
+        Save the results to a text file.
+        """
+        os.makedirs(directory, exist_ok=True)
+        if filename.endswith('.npz'):
+            np.savez(os.path.join(directory, filename), **data)
+        else:
+            np.savetxt(os.path.join(directory, filename), data)

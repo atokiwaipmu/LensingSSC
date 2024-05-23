@@ -38,6 +38,7 @@
 % Please keep new commands to a minimum, and use \newcommand not \def to avoid
 % overwriting existing commands. Example:
 %\newcommand{\pcm}{\,cm$^{-2}$}	% per cm-squared
+\newcommand{\akira}[1]{\textcolor{red}{[AT: #1]}}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -93,10 +94,7 @@ keyword1 -- keyword2 -- keyword3
 
 \section{Introduction}
 
-\section{Methods}
-\label{sec:method}
-
-\subsection{Covariance}
+\section{Covariance}
 \textbf{almost copy from the paper of \cite{PhysRevD.108.043521}}
 
 The covariance matrix between an observable $\mathcal{O}_\alpha$ and another observable $\mathcal{O}_\beta$ is given by 
@@ -116,6 +114,29 @@ Because the Super sample modes are only present in the former and not in the lat
     C_{SSC} = C_{sub} - C_{small}
 \end{equation}
 where $C_{sub}$ is the covariance computed using sub-boxes and $C_{small}$ is that using small boxes.
+
+\section{Methods}
+\label{sec:method}
+We started by generating N-body simulations of $\boldsymbol{BIGBOX}$ and $\boldsymbol{TILED}$ and used them to generate full sky convergence maps. 
+To measure the statistics in different scale, we smoothed the convergence maps with Gaussian filters of various scales.
+
+\subsection{N-body Simulations}
+The dark-matter only N-body simulations were done using the FASTPM. \akira{description of how good the FASTPM is}
+
+Assuming a flat $\Lambda CDM$ cosmology with the following parameters: 
+$\Omega_0 = 0.3089$, $\Omega_\Lambda = 0.6911$, $h = 0.6774$, $D = 0.12745536$ and $f = 0.99875922$. 
+The $\boldsymbol{BIGBOX}$ has a side length of $L = 5000 Mpc/h$ and contains $8192^3$ particles.
+The $\boldsymbol{TILED}$ consists of $8^3$ small boxes with a side length of $L = 625 Mpc/h$ and contains $1024^3$ particles.
+
+\subsection{Generating Convergence Map}
+Sitting at the corner of the simulation box, we can only generated a light cone covering one octant of the sky.
+To generate a full sky map, we rotated the light cone to cover the full sky.
+
+Snapshots are outputted from scale factor $a = 0.3$ to $a = 1.0$ with a spacing of $\Delta a = 0.01$.
+That is, we have 71 snapshots from redshift $z = 0.0$ to $z = 2.3$.
+
+
+
 
 \subsection{Ray Traced Weak Lensing Map}
 \textbf{almost copy from the paper of \cite{10.1093/mnras/stab395}}
