@@ -69,9 +69,9 @@ if __name__ == "__main__":
     delta, chi1, chi2 = get_mass_sheet(cath.cat, idx)
     delta = np.array(delta, dtype="float32")
     delta = hp.reorder(delta, n2r=True)
-    delta_4096 = hp.ud_grade(delta, 4096)
+    #delta_4096 = hp.ud_grade(delta, 4096)
 
     save_path = os.path.join(datadir, "mass_sheets")
     os.makedirs(save_path, exist_ok=True)
     np.savez(f"{save_path}/delta-sheet-{idx}.npz", delta=delta, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
-    np.savez(f"{save_path}/delta-sheet-4096-{idx}.npz", delta=delta_4096, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
+    #np.savez(f"{save_path}/delta-sheet-4096-{idx}.npz", delta=delta_4096, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))

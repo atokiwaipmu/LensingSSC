@@ -14,6 +14,7 @@ from mpi4py import MPI
 from .ConfigData import ConfigData, ConfigAnalysis
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class SheetMapper:
     """Handles operations related to sheet mapping for cosmological data visualization."""
@@ -78,7 +79,7 @@ def main(data_path, save_path, zs, i_start=20, i_end=99, r4096=False):
     # Initialize SheetMapper and create maps
     mapper = SheetMapper() if not r4096 else SheetMapper(nside=4096)
     mapper.new_map("kappa")
-    mapper.new_map("kappa_int")
+    #mapper.new_map("kappa_int")
 
     # Initialize MPI
     comm = MPI.COMM_WORLD
@@ -91,29 +92,29 @@ def main(data_path, save_path, zs, i_start=20, i_end=99, r4096=False):
             logging.info(f"Rank {rank} processing delta sheet index {i}")
             delta, chi1, chi2 = load_delta_sheet(data_path, i, r4096)
             mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
-            mapper.add_sheet_to_map_int("kappa_int", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
+            #mapper.add_sheet_to_map_int("kappa_int", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
 
     # Gather local maps
     local_kappa = mapper.maps["kappa"]
-    local_kappa_int = mapper.maps["kappa_int"]
+    #local_kappa_int = mapper.maps["kappa_int"]
 
     # Initialize global maps at root
     global_kappa = np.zeros_like(local_kappa) if rank == 0 else None
-    global_kappa_int = np.zeros_like(local_kappa_int) if rank == 0 else None
+    #global_kappa_int = np.zeros_like(local_kappa_int) if rank == 0 else None
 
     # Reduce maps across all processes
     comm.Reduce([local_kappa, MPI.FLOAT], [global_kappa, MPI.FLOAT], op=MPI.SUM, root=0)
-    comm.Reduce([local_kappa_int, MPI.FLOAT], [global_kappa_int, MPI.FLOAT], op=MPI.SUM, root=0)
+    #comm.Reduce([local_kappa_int, MPI.FLOAT], [global_kappa_int, MPI.FLOAT], op=MPI.SUM, root=0)
 
     # Save the results at root
     if rank == 0:
         global_kappa = hp.reorder(global_kappa, r2n=True)
-        global_kappa_int = hp.reorder(global_kappa_int, r2n=True)
-        hp.write_map(os.path.join(save_path, "kappa.fits"), global_kappa, dtype=np.float32)
-        hp.write_map(os.path.join(save_path, "kappa_int.fits"), global_kappa_int, dtype=np.float32)
+        #global_kappa_int = hp.reorder(global_kappa_int, r2n=True)
+        hp.write_map(os.path.join(save_path), global_kappa, dtype=np.float32)
+        #hp.write_map(os.path.join(save_path, "kappa_int.fits"), global_kappa_int, dtype=np.float32)
         logging.info("Output maps saved to %s", save_path)
         logging.info("Kappa map min/max: %f/%f", global_kappa.min(), global_kappa.max())
-        logging.info("Kappa_int map min/max: %f/%f", global_kappa_int.min(), global_kappa_int.max())
+        #logging.info("Kappa_int map min/max: %f/%f", global_kappa_int.min(), global_kappa_int.max())
 
     logging.info("Computation of weak lensing convergence maps completed.")
 
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config_file = os.path.join(
-        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config.json'
+        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_data.json'
     )
     config = ConfigData.from_json(config_file)
 
@@ -145,6 +146,9 @@ if __name__ == "__main__":
 
     for zs in config.zs_list:
         logging.info(f"Computing weak lensing convergence maps for zs={zs}")
-        save_path_zs = os.path.join(save_path, f"zs-{zs}")
-        os.makedirs(save_path_zs, exist_ok=True)
+        save_path_zs = os.path.join(save_path, "data", f"kappa_zs{zs:.1f}.fits")
+        os.makedirs(os.path.dirname(save_path_zs), exist_ok=True)
+        if os.path.exists(save_path_zs):
+            logging.info(f"Output file {save_path_zs} already exists. Skipping.")
+            continue
         main(data_path, save_path_zs, zs, r4096=args.r4096)
