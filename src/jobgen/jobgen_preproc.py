@@ -35,3 +35,10 @@ for index in range(start_index, end_index + 1):
     with open(script_path, 'w') as f:
         f.write(job_script_content)
     print(f'Generated job script at {script_path}')
+
+# generate a file to submit all the scripts
+submit_filename = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/job/",  "submission", f"submit_preproc_{config}.sh")
+with open(submit_filename, 'w') as file:
+    for index in range(start_index, end_index + 1):
+        file.write(f"qsub {output_dir}/job_{index}.sh\n")
+print(f"Generated submit script: {submit_filename}")

@@ -2,55 +2,54 @@
 import numpy as np
 import healpy as hp
 import os
-from glob import glob
 import logging
-import multiprocessing as mp
-from typing import List, Tuple
-import itertools
+import argparse
+from pathlib import Path
 
 from ..masssheet.ConfigData import ConfigAnalysis
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def process_map(mapfile: str, sl_arcmin: float) -> None:
-    smoothed_map_file = mapfile.replace(".fits", f"_smoothed_s{sl_arcmin}.fits").replace("data", "smoothed")
-    if os.path.exists(smoothed_map_file):
-        logging.info(f"File already exists: {smoothed_map_file}")
-        return
-    else:
-        logging.info(f"Processing map: {mapfile}")
-        try:
-            sl_rad = sl_arcmin / 60 / 180 * np.pi
-            kappa_masked = hp.ma(hp.reorder(hp.read_map(mapfile), n2r=True))
-            smoothed_map = hp.smoothing(kappa_masked , sigma=sl_rad)
-            hp.write_map(smoothed_map_file, smoothed_map, dtype=np.float32)
-            logging.info(f"Processed and saved: {smoothed_map_file}")
-        except Exception as e:
-            logging.error(f"Error processing {mapfile} with smoothing length {sl_arcmin}: {e}")
-
-def worker(params: Tuple[str, np.ndarray, float]) -> None:
-    filename, sl_arcmin = params
-    process_map(filename, sl_arcmin)
-    logging.info(f"Processed map for {filename} with smoothing length {sl_arcmin}.")
-
+def process_map(mapfile: str, savefile: str, sl_arcmin: float) -> None:
+    try:
+        sl_rad = sl_arcmin / 60 / 180 * np.pi
+        kappa_masked = hp.ma(hp.reorder(hp.read_map(mapfile), n2r=True))
+        smoothed_map = hp.smoothing(kappa_masked, sigma=sl_rad)
+        hp.write_map(savefile, smoothed_map, dtype=np.float32)
+        logging.info(f"Processed and saved: {savefile}")
+    except FileNotFoundError:
+        logging.error(f"File not found: {mapfile}")
+    except Exception as e:
+        logging.error(f"Error processing {mapfile} with smoothing length {sl_arcmin}: {e}")
 
 def main() -> None:
-    config_analysis_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_analysis.json')
+    parser = argparse.ArgumentParser(description="Process kappa maps based on provided configuration.")
+    parser.add_argument('config_id', type=str, help='Configuration identifier')
+    parser.add_argument('zs', type=float, help='Source redshift')
+    parser.add_argument('sl_arcmin', type=int, help='Smoothing length in arcmin')
+    args = parser.parse_args()
+
+    config_analysis_file = Path("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_analysis.json")
+    if not config_analysis_file.exists():
+        logging.error(f"Configuration file not found: {config_analysis_file}")
+        return
+
     config_analysis = ConfigAnalysis.from_json(config_analysis_file)
+    dir_data = Path(config_analysis.resultsdir) / args.config_id / "data"
+    filename = dir_data / f"kappa_zs{args.zs:.1f}.fits"
+    if not filename.exists():
+        logging.error(f"No files found for redshift {args.zs}.")
+        return
 
-    tasks = []
-    for config_id in ['tiled', 'bigbox']:
-        logging.info(f"Config ID: {config_id}")
-        dir_data = os.path.join(config_analysis.resultsdir, config_id, "data")
-        filenames = sorted(glob(os.path.join(dir_data, "kappa_zs*.fits")))
-        logging.info(f"Found {len(filenames)} files.")
-        
-        # Create tasks for each combination of config_id, mapbin, and smoothing length
-        tasks.extend(itertools.product(filenames, config_analysis.sl_arcmin))
+    dir_smoothed = Path(config_analysis.resultsdir) / args.config_id / "smoothed" / f"sl={args.sl_arcmin}"
+    dir_smoothed.mkdir(parents=True, exist_ok=True)
+    filename_smoothed = dir_smoothed / filename.name.replace('.fits', f'_smoothed_sl{args.sl_arcmin}.fits')
+    if filename_smoothed.exists():
+        logging.info(f"File already exists: {filename_smoothed}")
+        return
 
-        # Process all combinations in parallel
-        with mp.Pool() as pool:
-            pool.map(worker, tasks)
-
+    logging.info(f"Processing map: {filename}")
+    process_map(str(filename), str(filename_smoothed), args.sl_arcmin)
+    logging.info(f"Processed and saved: {filename_smoothed}")
+    
 if __name__ == '__main__':
     main()
