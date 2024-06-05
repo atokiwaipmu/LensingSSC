@@ -6,7 +6,7 @@ import healpy as hp
 import numpy as np
 from astropy.cosmology import FlatLambdaCDM
 
-from .ConfigData import ConfigData, CatalogHandler
+from src.utils.ConfigData import ConfigData, CatalogHandler
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

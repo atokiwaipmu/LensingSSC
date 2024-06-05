@@ -11,7 +11,7 @@ from astropy import units as u
 from astropy.cosmology import FlatLambdaCDM
 from mpi4py import MPI
 
-from .ConfigData import ConfigData, ConfigAnalysis
+from src.utils.ConfigData import ConfigData, ConfigAnalysis
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

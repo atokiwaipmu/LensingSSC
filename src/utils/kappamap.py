@@ -9,7 +9,7 @@ from typing import Tuple, Any
 # Uncomment the following line if healsparse is needed
 # import healsparse
 
-from .find_extrema import find_extrema, find_extrema_xor
+from src.utils.find_extrema import find_extrema
 
 class KappaMaps:
     """
@@ -141,22 +141,6 @@ class KappaCodes(KappaMaps):
         peaks = np.vstack([peak_pos.T, peak_amp]).T
         minima = np.vstack([minima_pos.T, minima_amp]).T
         return peaks, minima
-
-    def _calculate_peaks(self, map_smooth_ma: np.ma.MaskedArray, lonlat: bool = True) -> np.ndarray:
-        """
-        Calculate the peaks for a smoothed masked map.
-        """
-        peak_pos, peak_amp = find_extrema_xor(map_smooth_ma, lonlat=lonlat, nside=self.nside)
-        peaks = np.vstack([peak_pos.T, peak_amp]).T
-        return peaks
-
-    def _calculate_minima(self, map_smooth_ma: np.ma.MaskedArray, lonlat: bool = True) -> np.ndarray:
-        """
-        Calculate the minima for a smoothed masked map.
-        """
-        minima_pos, minima_amp = find_extrema_xor(map_smooth_ma, minima=True, lonlat=lonlat, nside=self.nside)
-        minima = np.vstack([minima_pos.T, minima_amp]).T
-        return minima
 
     def _save_results(self, directory: str, filename: str, data: Any):
         """
