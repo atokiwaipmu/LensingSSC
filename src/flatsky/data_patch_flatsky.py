@@ -21,7 +21,7 @@ def process_kappa_map(save_directory, kappa_map_path, patch_size_deg=10):
 
     for ra in range(0, 360, patch_size_deg):
         for dec in range(-30, 40, patch_size_deg):
-            patch = project_gnomonic(kappa_map, center_ra=ra, center_dec=dec, xsize=800, resolution=patch_size_deg*60/800)
+            patch = project_gnomonic(kappa_map, center_ra=ra, center_dec=dec, xsize=1024, resolution=patch_size_deg*60/1024)
 
             save_filename = os.path.join(save_directory, os.path.basename(kappa_map_path).replace('.fits', 
                                 f'_{patch_size_deg}x{patch_size_deg}_center{ra}_{dec}.npy'))
