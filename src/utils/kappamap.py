@@ -45,6 +45,12 @@ class KappaMaps:
         except Exception as e:
             raise IOError(f"Failed to read maps with healpy: {e}")
         
+    def compute_stddev(self):
+        """
+        Compute the standard deviation of each map in mapbins.
+        """
+        self.stddev = [np.std(m) for m in self.mapbins]
+        
     def smoothing(self, mapbin, sl, is_map=True):
         """
         Apply Gaussian smoothing to a map.

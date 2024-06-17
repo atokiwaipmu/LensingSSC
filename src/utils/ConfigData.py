@@ -59,13 +59,14 @@ class ConfigAnalysis(BaseConfig):
     resultsdir: str
     imgdir: str
     sl_arcmin: List[int]
+    n_gal: List[int]
     nside: int
     void_val: float
     lmax: int
 
     @staticmethod
     def from_json(config_file: str) -> 'ConfigAnalysis':
-        required_keys = ['resultsdir', 'imgdir', 'sl_arcmin', 'nside', 'void_val', 'lmax']
+        required_keys = ['resultsdir', 'imgdir', 'sl_arcmin', 'n_gal', 'nside', 'void_val', 'lmax']
         return BaseConfig.from_json(config_file, required_keys, ConfigAnalysis)
 
 @dataclass
@@ -87,6 +88,21 @@ class ConfigCosmo(BaseConfig):
     def from_json(config_file: str) -> 'ConfigCosmo':
         required_keys = ['ombh2', 'omch2', 'A_s', 'h', 'n_s', 'tau']
         return BaseConfig.from_json(config_file, required_keys, ConfigCosmo)
+    
+@dataclass
+class ConfigJobGen(BaseConfig):
+    user_email: str
+    user_name: str
+    walltime: str
+    conda_env: str
+    nodes: int
+    ppn: int
+    project_base_dir: str
+
+    @staticmethod
+    def from_json(config_file: str) -> 'ConfigJobGen':
+        required_keys = ['user_email', 'user_name', 'walltime', 'conda_env', 'nodes', 'ppn', 'project_base_dir']
+        return BaseConfig.from_json(config_file, required_keys, ConfigJobGen)
 
 @dataclass
 class CatalogHandler:

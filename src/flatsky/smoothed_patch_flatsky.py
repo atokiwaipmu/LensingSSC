@@ -17,8 +17,7 @@ def project_gnomonic(kappa_map, center_ra, center_dec, xsize, resolution):
 def process_kappa_map(save_directory, kappa_map_path, patch_size_deg=10):
     logging.info("Starting the kappa maps processing.")
     kappa_map = hp.read_map(kappa_map_path)
-    kappa_map = hp.reorder(kappa_map, n2r=True)
-
+    
     for ra in range(0, 360, patch_size_deg):
         for dec in range(-30, 40, patch_size_deg):
             patch = project_gnomonic(kappa_map, center_ra=ra, center_dec=dec, xsize=1024, resolution=patch_size_deg*60/1024)

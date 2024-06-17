@@ -1,8 +1,10 @@
 {
   "resultsdir": "/lustre/work/akira.tokiwa/Projects/LensingSSC/results",
   "imgdir": "/lustre/work/akira.tokiwa/Projects/LensingSSC/img",
-  "sl_arcmin": [5, 8, 10],
+  "sl_arcmin": [2, 5, 8, 10],
+  "n_gal": [7, 15, 30, 50],
   "nside": 8192,
   "void_val": -1.6375e+30,
+  "lmin": 300,
   "lmax": 3000
 }

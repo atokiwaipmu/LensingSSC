@@ -1,4 +1,5 @@
 
+import glob
 import numpy as np
 import healpy as hp
 import os
@@ -6,13 +7,20 @@ import logging
 import argparse
 from pathlib import Path
 
-from ..masssheet.ConfigData import ConfigAnalysis
+from src.utils.ConfigData import ConfigAnalysis
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def process_map(mapfile: str, savefile: str, sl_arcmin: float) -> None:
+def process_map(mapfile: str, savefile: str, sl_arcmin: float, noise_map: str = None) -> None:
     try:
         sl_rad = sl_arcmin / 60 / 180 * np.pi
-        kappa_masked = hp.ma(hp.reorder(hp.read_map(mapfile), n2r=True))
+        kappa_masked = hp.read_map(mapfile)
+
+        if noise_map is not None:
+            noise = hp.read_map(noise_map)
+            kappa_masked += noise
+
+        kappa_masked = hp.ma(hp.reorder(kappa_masked, n2r=True))
+
         smoothed_map = hp.smoothing(kappa_masked, sigma=sl_rad)
         hp.write_map(savefile, smoothed_map, dtype=np.float32)
         logging.info(f"Processed and saved: {savefile}")
@@ -26,6 +34,7 @@ def main() -> None:
     parser.add_argument('config_id', type=str, help='Configuration identifier')
     parser.add_argument('zs', type=float, help='Source redshift')
     parser.add_argument('sl_arcmin', type=int, help='Smoothing length in arcmin')
+    parser.add_argument('--noise_file', type=str, default=None, help='Noise file to add to the map')
     args = parser.parse_args()
 
     config_analysis_file = Path("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_analysis.json")
@@ -39,16 +48,24 @@ def main() -> None:
     if not filename.exists():
         logging.error(f"No files found for redshift {args.zs}.")
         return
-
+    
     dir_smoothed = Path(config_analysis.resultsdir) / args.config_id / "smoothed" / f"sl={args.sl_arcmin}"
     dir_smoothed.mkdir(parents=True, exist_ok=True)
-    filename_smoothed = dir_smoothed / filename.name.replace('.fits', f'_smoothed_sl{args.sl_arcmin}.fits')
-    if filename_smoothed.exists():
-        logging.info(f"File already exists: {filename_smoothed}")
-        return
+
+    if args.noise_file is not None:
+        # Add the file name to the end of the smoothed_sl{args.sl_arcmin} filename
+        filename_smoothed = dir_smoothed / filename.name.replace('.fits', f'_smoothed_sl{args.sl_arcmin}_' + Path(args.noise_file).stem + '.fits')
+        if filename_smoothed.exists():
+            logging.info(f"File already exists: {filename_smoothed}")
+            return
+    else:
+        filename_smoothed = dir_smoothed / filename.name.replace('.fits', f'_smoothed_sl{args.sl_arcmin}.fits')
+        if filename_smoothed.exists():
+            logging.info(f"File already exists: {filename_smoothed}")
+            return
 
     logging.info(f"Processing map: {filename}")
-    process_map(str(filename), str(filename_smoothed), args.sl_arcmin)
+    process_map(str(filename), str(filename_smoothed), args.sl_arcmin, args.noise_file)
     logging.info(f"Processed and saved: {filename_smoothed}")
     
 if __name__ == '__main__':

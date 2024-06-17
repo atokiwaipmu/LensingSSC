@@ -4,7 +4,7 @@ import numpy as np
 import logging
 from classy import Class
 
-from ..masssheet.ConfigData import ConfigData, ConfigAnalysis, ConfigCosmo
+from src.utils.ConfigData import ConfigData, ConfigAnalysis, ConfigCosmo
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

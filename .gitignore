@@ -161,5 +161,6 @@ cython_debug/
 
 data/
 job/
+job/log
 references/
 results/

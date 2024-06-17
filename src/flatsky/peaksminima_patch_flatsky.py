@@ -12,24 +12,35 @@ from src.utils.ConfigData import ConfigAnalysis
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def calculate_peaks_minima(patch, angle, peak_bins, minima_bins):
+def calculate_peaks_minima(patch, angle, peak_bins, minima_bins, return_index=True):
     conv_map = ConvergenceMap(patch, angle=angle * u.deg)
     peak_height,peak_positions = conv_map.locatePeaks(peak_bins)
+    peak_height,peak_positions = exclude_edges(peak_height, peak_positions, angle, patch.shape[0], return_index=return_index)
 
     conv_map_minus = ConvergenceMap(-patch, angle=angle * u.deg)
     minima_height,minima_positions = conv_map_minus.locatePeaks(minima_bins)
     minima_height = -minima_height
 
+    minima_height,minima_positions = exclude_edges(minima_height, minima_positions, angle, patch.shape[0], return_index=return_index)
+
     return peak_height, peak_positions, minima_height, minima_positions
 
-def main(kappa_map_files, save_directory, patch_size_deg=10):
+def exclude_edges(heights, positions, patch_size_deg, xsize, return_index=True):
+    tmp_positions = positions.value * xsize / patch_size_deg
+    mask = (tmp_positions[:, 0] > 0) & (tmp_positions[:, 0] < xsize-1) & (tmp_positions[:, 1] > 0) & (tmp_positions[:, 1] < xsize-1)
+    if return_index:
+        return heights[mask], tmp_positions[mask].astype(int)
+    else:
+        return heights[mask], positions[mask]
+
+def main(kappa_map_files, save_directory, patch_size_deg=10, return_index=True):
     logging.info("Starting the kappa maps processing.")
     peak_bins = np.append(np.append(-1, np.arange(0, 0.024, 0.002)), 1)
     minima_bins = np.append(np.append(-1, np.arange(-0.024, 0, 0.002)), 1)
 
     for kappa_map_file in kappa_map_files:
         patch = np.load(kappa_map_file)
-        peak_height, peak_positions, minima_height, minima_positions = calculate_peaks_minima(patch, patch_size_deg, peak_bins, minima_bins)
+        peak_height, peak_positions, minima_height, minima_positions = calculate_peaks_minima(patch, patch_size_deg, peak_bins, minima_bins, return_index=return_index)
         logging.info(f"Found {len(peak_positions)} peaks and {len(minima_positions)} minima.")
         save_filename = os.path.join(save_directory, os.path.basename(kappa_map_file).replace('.npy', 
                                 f'_peaksminima.npz'))
