@@ -27,13 +27,15 @@ class BaseConfig:
 
         if config_keys_set == required_keys_set:
             pass
-        else:
+        elif config_keys_set < required_keys_set:
             missing_keys = required_keys_set - config_keys_set
+            raise KeyError(f"Missing required keys in configuration file: {missing_keys}")
+        elif config_keys_set > required_keys_set:
             extra_keys = config_keys_set - required_keys_set
-            print(f"Missing keys: {missing_keys}")
             print(f"Extra keys: {extra_keys}")
-            if missing_keys:
-                raise KeyError(f"Missing required keys in configuration file: {missing_keys}")
+            for key in extra_keys:
+                config.pop(key)
+            print(f"Removed extra keys: {config.keys()}")
 
         return cls(**config)
 
@@ -62,11 +64,12 @@ class ConfigAnalysis(BaseConfig):
     n_gal: List[int]
     nside: int
     void_val: float
+    lmin: int
     lmax: int
 
     @staticmethod
     def from_json(config_file: str) -> 'ConfigAnalysis':
-        required_keys = ['resultsdir', 'imgdir', 'sl_arcmin', 'n_gal', 'nside', 'void_val', 'lmax']
+        required_keys = ['resultsdir', 'imgdir', 'sl_arcmin', 'n_gal', 'nside', 'void_val', 'lmin', 'lmax']
         return BaseConfig.from_json(config_file, required_keys, ConfigAnalysis)
 
 @dataclass
