@@ -160,7 +160,9 @@ cython_debug/
 #.idea/
 
 data/
+img/
 job/
+log/
 job/log
 references/
 results/

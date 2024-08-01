@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from src.utils.compute_sigma import parse_file_name
 from src.utils.ConfigData import ConfigAnalysis
-from src.flatsky.analysis_patch_flatsky import WeakLensingAnalysis
+from src.flatsky.analysis_patch_flatsky import WeakLensingAnalysis, WeakLensingCovariance
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -27,6 +27,7 @@ def process_kappa_map(dir_results, kappa_map_path, patch_size_deg=10):
     else:
         save_directory = os.path.join(dir_results, f"zs{source_redshift:.1f}", f"sl{smoothing_length}", f"{survey}", "patch_flat")
     os.makedirs(save_directory, exist_ok=True)
+    os.makedirs(os.path.join(save_directory, "data"), exist_ok=True)
 
     kappa_map = hp.read_map(kappa_map_path)
     stddev = np.std(kappa_map)
@@ -36,17 +37,21 @@ def process_kappa_map(dir_results, kappa_map_path, patch_size_deg=10):
         for dec in range(-30, 40, patch_size_deg):
             patch = project_gnomonic(kappa_map, center_ra=ra, center_dec=dec, xsize=1024, resolution=patch_size_deg*60/1024)
             save_filename = os.path.basename(kappa_map_path).replace('.fits', f'_{patch_size_deg}x{patch_size_deg}_center{ra}_{dec}.npy')
-            np.save(os.path.join(save_directory, save_filename), patch.data)
+            np.save(os.path.join(save_directory, "data", save_filename), patch.data)
 
             wl = WeakLensingAnalysis(save_directory, save_filename, patch, angle=patch_size_deg, lmax=3000, lmin=300, nbin=15, xsize=1024, save=True)
             ell, equilateral, halfed, squeezed = wl.compute_bispectrum()
             ell, cl = wl.compute_power_spectrum()
             nu, p = wl.calculate_pdf(bins=bins)
-            peak_height, peak_positions = wl.calculate_peaks(peak_bins=bins)
-            minima_height, minima_positions = wl.calculate_peaks(peak_bins=bins)
+            peak_bins, peak_height, peak_positions = wl.calculate_peaks(peak_bins=bins)
+            minima_bins, minima_height, minima_positions = wl.calculate_minima(minima_bins=bins)
 
             plt.close()
             logging.info(f"Saved the results to {save_filename}")
+
+    wlcov = WeakLensingCovariance(save_directory, save=True)
+    wlcov.cov_full()
+    logging.info(f"Saved the results to {save_directory}")
 
 def process_all_kappa_maps(kappa_map_dir, dir_results, patch_size_deg=10):
     kappa_map_paths = glob(os.path.join(kappa_map_dir, "*.fits"))

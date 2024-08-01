@@ -39,39 +39,33 @@ def get_mass_sheet(msheets, i):
 
         # Calculate mean density contrast
         boxsize, M_cdm, nc = msheets.attrs['BoxSize'][0], msheets.attrs['MassTable'][1], msheets.attrs['NC'][0]
-        rhobar = M_cdm * (nc / boxsize)**3
+        rhobar = M_cdm * (nc / boxsize)**3 # Mean density [Msun/(Mpc/h)^3]
 
         a1, a2 = msheets.attrs['aemitIndex.edges'][i:i+2]
         z1, z2 = 1. / a1 - 1., 1. / a2 - 1.
-        chi1, chi2 = cosmo.comoving_distance([z1, z2]).value * HUBBLE_CONSTANT
-        volume_diff = 4 * np.pi * (chi1**3 - chi2**3) / (3 * npix)
-        delta = map_for_slice / volume_diff / rhobar - 1
-        return delta, chi1 / HUBBLE_CONSTANT, chi2 / HUBBLE_CONSTANT
+        chi1, chi2 = cosmo.comoving_distance([z1, z2]).value * HUBBLE_CONSTANT # [Mpc/h]
+        volume_diff = 4 * np.pi * (chi1**3 - chi2**3) / (3 * npix) # [(Mpc/h)^3]
+        delta = map_for_slice / volume_diff / rhobar - 1 # Density contrast
+        return delta, chi1 / HUBBLE_CONSTANT, chi2 / HUBBLE_CONSTANT # [], [Mpc], [Mpc]
     except Exception as e:
         logging.error(f"Error processing mass sheet {i}: {str(e)}")
         raise
 
+def main(msheets, datadir):
+    os.makedirs(os.path.join(datadir, "mass_sheets"), exist_ok=True)
+    for i in range(20, 100):
+        if msheets.attrs['aemitIndex.offset'][i+1] == msheets.attrs['aemitIndex.offset'][i+2]:
+            logging.info(f"Sheet {i} is empty. Skipping...")
+            continue
+        delta, chi1, chi2 = get_mass_sheet(msheets, i)
+        delta = np.array(delta, dtype="float32")
+        np.savez(f"{datadir}/mass_sheets/delta-sheet-{i}.npz", delta=delta, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
-    parser.add_argument('config', type=str, choices=['tiled', 'bigbox'], help='Configuration file')
-    parser.add_argument('index', type=int, help='Index of mass sheet')
+    parser.add_argument('datadir', type=str, help='Data directory')
     args = parser.parse_args()
-    config_file = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config.json')
-    config = ConfigData.from_json(config_file)
-    if args.config == 'tiled':
-        datadir = config.tileddir
-    elif args.config == 'bigbox':
-        datadir = config.bigboxdir
-    cath = CatalogHandler(datadir, config.source, config.dataset)
-    idx = args.index
+    cath = CatalogHandler(args.datadir, "usmesh/", "HEALPIX/")
 
     set_cosmology()
-    delta, chi1, chi2 = get_mass_sheet(cath.cat, idx)
-    delta = np.array(delta, dtype="float32")
-    delta = hp.reorder(delta, n2r=True)
-    #delta_4096 = hp.ud_grade(delta, 4096)
-
-    save_path = os.path.join(datadir, "mass_sheets")
-    os.makedirs(save_path, exist_ok=True)
-    np.savez(f"{save_path}/delta-sheet-{idx}.npz", delta=delta, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
-    #np.savez(f"{save_path}/delta-sheet-4096-{idx}.npz", delta=delta_4096, chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
+    main(cath.cat, args.datadir)

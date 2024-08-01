@@ -113,24 +113,6 @@ class KappaCodes(KappaMaps):
         self._save_results(os.path.join(self.dir_results, 'peaks'), fn_out_peaks, peaks)
         self._save_results(os.path.join(self.dir_results, 'minima'), fn_out_minima, minima)
         return peaks, minima
-
-    def run_peaks(self, map1_smooth: np.ndarray, Nmap1: int) -> np.ndarray:
-        map1_smooth_ma = hp.ma(map1_smooth)
-        if not isinstance(map1_smooth_ma, np.ma.MaskedArray):
-            raise TypeError(f"Expected np.ma.MaskedArray, got {type(map1_smooth_ma)}")
-        peaks = self._calculate_peaks(map1_smooth_ma)
-        fn_out_peaks = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_peaks_posRADEC_amp.dat')
-        self._save_results(os.path.join(self.dir_results, 'peaks'), fn_out_peaks, peaks)
-        return peaks
-
-    def run_minima(self, map1_smooth: np.ndarray, Nmap1: int) -> np.ndarray:
-        map1_smooth_ma = hp.ma(map1_smooth)
-        if not isinstance(map1_smooth_ma, np.ma.MaskedArray):
-            raise TypeError(f"Expected np.ma.MaskedArray, got {type(map1_smooth_ma)}")
-        minima = self._calculate_minima(map1_smooth_ma)
-        fn_out_minima = os.path.basename(self.filenames[Nmap1]).replace('.fits', f'_minima_posRADEC_amp.dat')
-        self._save_results(os.path.join(self.dir_results, 'minima'), fn_out_minima, minima)
-        return minima
         
     def _calculate_pdf(self, map_smooth: np.ndarray, bins: np.ndarray) -> np.ndarray:
         """

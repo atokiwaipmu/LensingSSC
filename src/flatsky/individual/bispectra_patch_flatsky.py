@@ -17,7 +17,7 @@ def compute_bispectrum(patch, angle, lmax=3000, lmin=300, nbin=15):
     l_edges = np.linspace(lmin, lmax, nbin, endpoint=True)
     ell, equilateral = convergence_map.bispectrum(l_edges, configuration='equilateral')
     _, halfed = convergence_map.bispectrum(l_edges, ratio=0.5, configuration='folded')
-    _, squeezed = convergence_map.bispectrum(l_edges, ratio=0.001, configuration='folded')
+    _, squeezed = convergence_map.bispectrum(l_edges, ratio=0.01, configuration='folded')
     return ell, equilateral, halfed, squeezed
 
 def main(kappa_map_files, save_directory, patch_size_deg=10, lmin=300, lmax=3000, nbin=15):
