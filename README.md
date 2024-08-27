@@ -41,18 +41,28 @@ This repository contains the code used to produce the results in the paper "Lens
 - any HOS that are less sensitive to SSC?
 - the redshift dependence of SSC contribution
 
-### Setup
-Follows the current plan for 
-![Config](https://github.com/atokiwaipmu/LensingSSC/img/setting/light_cone_configuration.png)
+## Setup
+- Generate lensing maps using the big box (5 or 3.75 Gpc/h) and the heavily tiled box (625Mpc/h * 8^3)
+![Config](img/setting/light_cone_configuration.png)
+![lensing](img/setting/lensefficiency.png)
+By comparing the lightcone and small box size in this setup, we can barely capture the SSC contribution for z_source < 2.0.
+But we can capture the SSC contribution for z_source = 3.0.
 
+## Generate kappa maps
+- preprocessing the mass sheets
+```sh
+python -m src.preproc --input /path/to/mass_sheets --output /path/to/output --nside 8192
+```
 
-### Methods
+- Generate kappa maps using the Born approximation
+
+## Methods
 By comparing between HOS (peaks, minima, PDFs, etc) measured from:
 - (1) lensing maps generated using the large boxes (5Gpc), which include all modes and hence capture SSC
 - (2) lensing maps generated using tiled small boxes (500Mpc), which miss modes bigger than 500Mpc (SSC contribution would be redshift dependent, where at lower z, you receive less contribution and at high z, you miss a lot more SSC)
 Both (1) and (2) capture the usual non-Gaussian information (they would have the same resolution), only differ in large-scale modes. 
 
-### Money plots
+## Money plots
 - ratio of (co-)variance between (1) and (2) 
 - the ratio as a function of source redshift zs=[0.5, 1, 1.5, 2, 2.5, 3]
 - the ratio as a function of small box size=[0.5, 1, 2, 3..] Gpc
