@@ -2,9 +2,11 @@
 
 This repository contains the code used to produce the results in the paper "Lensing Super Sample Covariance" by Akira Tokiwa, Adrian E. Bayer, Jia Liu and Masahiro Takada.
 
-## Installation
+
 
 <details>
+
+<summary>Installation</summary>
 
 ### Prerequisites
 
