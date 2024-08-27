@@ -42,7 +42,7 @@ This repository contains the code used to produce the results in the paper "Lens
 - the redshift dependence of SSC contribution
 
 ### Setup
-Follows the current plan for [LSST Y1 sims](https://docs.google.com/document/d/1wUc5joml9FFDijslaQth3-gvAAmvqU2NrVMbUUjOCyI/edit)
+Follows the current plan for 
 ![Config](https://github.com/atokiwaipmu/LensingSSC/assets/106581872/df9ae051-ba15-4d29-a119-39e6c01aa430)
 
 ### Methods
@@ -58,7 +58,8 @@ Both (1) and (2) capture the usual non-Gaussian information (they would have the
 - the ratio for all the relevant statistics
 
 ## URLs for the contents
-
+- [HalfDome](https://halfdomesims.github.io/)
+- [LSST Y1 sims](https://docs.google.com/document/d/1wUc5joml9FFDijslaQth3-gvAAmvqU2NrVMbUUjOCyI/edit)
 - [Google Slide](https://docs.google.com/presentation/d/1pFHoPImFvwqnGVIz9azB3b0borwAqdktTghcXhbc2AA/edit#slide=id.g2943db99aa6_0_0)
 - [Overleaf](https://www.overleaf.com/7662955643hwqybxnpdfmk#0a185c)
 
