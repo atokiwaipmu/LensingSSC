@@ -35,16 +35,11 @@ class SheetMapper:
         wlen_integral = wlen(chi, cosmology, zs) * dchi  # [1]
         self.maps[map_name] += wlen_integral * sheet  
 
-def load_delta_sheet(path, index, randomize=False):
+def load_delta_sheet(path, index):
     """Load a delta sheet from a specified path and index."""
     filename = f"/delta-sheet-{index}.npz"
     data = np.load(path + filename)
     delta = data['delta']
-    if randomize:
-        lon, lat = np.random.rand() * 2 * np.pi, np.random.rand() * np.pi
-        rot = hp.Rotator(rot = [lon, lat], deg=False)
-        delta = rot.rotate_map_alms(delta)
-        logging.info(f"Randomized delta sheet {index} with lon={lon}, lat={lat}")
     chi1, chi2 = data['chi1'][0], data['chi2'][0]
     return delta, chi1, chi2
 
@@ -56,7 +51,7 @@ def wlen_chi_kappa(chi, cosmo, zs):
     dchi = (1 - chi / chis).clip(0)
     return 3 / 2 * cosmo.Om0 * H0 ** 2 * (1 + z) * chi * dchi # 1/Mpc
 
-def main(data_path, save_path, zs, i_start=28, i_end=99, randomize=False):
+def main(data_path, save_path, zs, i_start=28, i_end=99):
     """
     Main function to compute weak lensing convergence maps.
     
@@ -83,7 +78,7 @@ def main(data_path, save_path, zs, i_start=28, i_end=99, randomize=False):
     for i in range(i_start, i_end):
         if (i - i_start) % size == rank:
             logging.info(f"Rank {rank} processing delta sheet index {i}")
-            delta, chi1, chi2 = load_delta_sheet(data_path, i, randomize)
+            delta, chi1, chi2 = load_delta_sheet(data_path, i)
             mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
 
     # Gather local maps
@@ -103,8 +98,6 @@ def main(data_path, save_path, zs, i_start=28, i_end=99, randomize=False):
     logging.info("Computation of weak lensing convergence maps completed.")
 
 if __name__ == "__main__":
-    # Usage: python kappamap.py /path/to/data --randomize
-
     config_file = os.path.join(
         "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_data.json'
     )
@@ -112,11 +105,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
     parser.add_argument('datadir', type=str, help='Data directory')
-    parser.add_argument('--randomize', action='store_true', help='Randomize delta sheets')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     args = parser.parse_args()
 
     data_path = os.path.join(args.datadir, "mass_sheets")
-    save_path = os.path.join(args.datadir, "kappa") if not args.randomize else os.path.join(args.datadir, "kappa_randomized")
+    save_path = os.path.join(args.datadir, "kappa")
     os.makedirs(save_path, exist_ok=True)
 
     # extract seed from datadir
@@ -125,7 +118,7 @@ if __name__ == "__main__":
     for zs in config.zs_list:
         logging.info(f"Computing weak lensing convergence maps for zs={zs}")
         save_path_zs = os.path.join(save_path, f"kappa_zs{zs:.1f}_{seed}.fits")
-        if os.path.exists(save_path_zs):
+        if os.path.exists(save_path_zs) and not args.overwrite:
             logging.info(f"Output file {save_path_zs} already exists. Skipping.")
             continue
-        main(data_path, save_path_zs, zs, randomize=args.randomize)
+        main(data_path, save_path_zs, zs)

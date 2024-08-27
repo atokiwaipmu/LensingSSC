@@ -4,7 +4,7 @@
     "source": "usmesh/",
     "destination": "wlen/",
     "dataset": "HEALPIX/",
-    "zs_list": [0.50, 1.00, 1.50, 2.00],
+    "zs_list": [0.50, 1.00, 2.00, 3.00],
     "zlmin": 0.0,
     "zlmax": 4.0,
     "zstep": 0.2

@@ -4,6 +4,8 @@ This repository contains the code used to produce the results in the paper "Lens
 
 ## Installation
 
+<details>
+
 ### Prerequisites
 
 1. Install `nbodykit` via conda:
@@ -30,6 +32,7 @@ This repository contains the code used to produce the results in the paper "Lens
     ```sh
     python setup.py install
     ```
+</details>
 
 ## Goal of this research
 - is our nominal setup of 1Gpc box sufficient in capturing SSC for HOS
