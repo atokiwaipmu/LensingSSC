@@ -43,7 +43,8 @@ This repository contains the code used to produce the results in the paper "Lens
 
 ### Setup
 Follows the current plan for 
-![Config](https://github.com/atokiwaipmu/LensingSSC/assets/106581872/df9ae051-ba15-4d29-a119-39e6c01aa430)
+![Config](https://github.com/atokiwaipmu/LensingSSC/img/setting/light_cone_configuration.png)
+
 
 ### Methods
 By comparing between HOS (peaks, minima, PDFs, etc) measured from:
