@@ -2,8 +2,6 @@
 
 This repository contains the code used to produce the results in the paper "Lensing Super Sample Covariance" by Akira Tokiwa, Adrian E. Bayer, Jia Liu and Masahiro Takada.
 
-
-
 <details>
 
 <summary>Installation</summary>
@@ -47,6 +45,10 @@ This repository contains the code used to produce the results in the paper "Lens
 ![lensing](img/setting/lensefficiency.png)
 By comparing the lightcone and small box size in this setup, we can barely capture the SSC contribution for z_source < 2.0.
 But we can capture the SSC contribution for z_source = 3.0.
+- scale factor bins: [0.01, 0.02, .. , 0.98, 0.99]
+- source_redshift zs = [0.5, 1.0, 2.0, 3.0]
+- small box size = 625 Gpc/h
+- big box size = 3.75 & 5 Gpc/h
 
 ## Generate kappa maps
 ### preprocessing the mass sheets
@@ -105,10 +107,9 @@ python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwr
 ## Statistics
 The following statistics are calculated for the lensing maps ($`\ell \in [300, 3000]`$, $`SNR \in [-4, 4]`$):
 - Power spectrum (`lenstools.ConvergenceMap.powerSpectrum`)
-- Bispectrum (`lenstools.ConvergenceMap.bispectrum`)
+- Squeezed Bispectrum (`lenstools.ConvergenceMap.bispectrum`)
 - PDF (`lenstools.ConvergenceMap.pdf`)
 - Peak/Minima (`lenstools.ConvergenceMap.locatePeaks`)
-
 
 ## Methods
 By comparing between HOS (peaks, minima, PDFs, etc) measured from:
