@@ -58,6 +58,7 @@ by default, it will create `/mass_sheets` directory in the same directory as the
 <details>
 
 <summary>Option</summary>
+
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
 ```sh
@@ -90,8 +91,10 @@ By default, it will create a `/flat` directory in the same location as the input
 <details>
 
 <summary>Option</summary>
+
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
+
 ```sh
 python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwrite
 ```
