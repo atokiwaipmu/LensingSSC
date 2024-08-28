@@ -49,7 +49,7 @@ By comparing the lightcone and small box size in this setup, we can barely captu
 But we can capture the SSC contribution for z_source = 3.0.
 
 ## Generate kappa maps
-- preprocessing the mass sheets
+### preprocessing the mass sheets
 ```sh
 python -m src.preproc /path/to/usmesh
 ```
@@ -66,7 +66,7 @@ python -m src.preproc /path/to/usmesh --output /path/to/mass_sheets --overwrite
 ```
 </details>
 
-- generate kappa maps
+### generate kappa maps
 ```sh
 python -m src.kappamap /path/to/mass_sheets
 ```
@@ -75,6 +75,7 @@ By default, it will create a `/kappa_maps` directory in the same location as the
 <details>
 
 <summary>Option</summary>
+
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
 ```sh
@@ -82,7 +83,7 @@ python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa_maps --overw
 ```
 </details>
 
-- Generate kappa maps
+### Do analysis on the kappa maps
 ```sh
 python -m src.analysis_patch /path/to/kappa_maps 
 ```
@@ -100,6 +101,14 @@ python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwr
 ```
 
 </details>
+
+## Statistics
+The following statistics are calculated for the lensing maps ($`\ell \in [300, 3000]`$, $`SNR \in [-4, 4]`$):
+- Power spectrum (`lenstools.ConvergenceMap.powerSpectrum`)
+- Bispectrum (`lenstools.ConvergenceMap.bispectrum`)
+- PDF (`lenstools.ConvergenceMap.pdf`)
+- Peak/Minima (`lenstools.ConvergenceMap.locatePeaks`)
+
 
 ## Methods
 By comparing between HOS (peaks, minima, PDFs, etc) measured from:
