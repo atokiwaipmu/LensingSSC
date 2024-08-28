@@ -3,7 +3,6 @@ import logging
 import argparse
 from glob import glob
 import multiprocessing as mp
-from multiprocessing import Manager
 
 import healpy as hp
 import numpy as np
@@ -11,13 +10,12 @@ import matplotlib.pyplot as plt
 from astropy import units as u
 from lenstools import ConvergenceMap
 
-from src.utils.ConfigData import ConfigAnalysis
 from src.flatsky.fibonacci_patch import fibonacci_grid_on_sphere, get_patch_pixels
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class kappa_processor():
-    def __init__(self, data_dir, nside=8192, npatch=273, patch_size = 10, xsize=2048, nbin=15, lmin=300, lmax=3000, scale_angle=2, ngal=30, nest=True):
+    def __init__(self, data_dir, nside=8192, npatch=273, patch_size = 10, xsize=2048, nbin=15, lmin=300, lmax=3000, scale_angle=2, ngal=30, nest=True, noiseless=False, overwrite=False):
         # data initialization
         self.data_dir = data_dir
         self.nside = nside
@@ -35,6 +33,7 @@ class kappa_processor():
         self.reso = patch_size*60/xsize
 
         # noise initialization
+        self.noiseless = noiseless
         self.ngal = ngal
         self.pixarea = hp.nside2pixarea(self.nside, degrees=True) * 60**2 # arcmin^2
 
@@ -47,6 +46,7 @@ class kappa_processor():
         self.bins = np.linspace(-4, 4, self.nbin+1, endpoint=True)
         self.l_edges = np.linspace(self.lmin, self.lmax, self.nbin+1, endpoint=True)
 
+        self.overwrite = overwrite
         os.makedirs(os.path.join(self.data_dir, "flat"), exist_ok=True)
         self.kappa_map_paths = glob(os.path.join(self.data_dir, "kappa", "*.fits"))
 
@@ -55,11 +55,19 @@ class kappa_processor():
             logging.info(f"Processing {idx+1}/{len(self.kappa_map_paths)}")
             self.process_data(idx)
 
-    def process_data(self, idx, noiseless=True):
+    def process_data(self, idx):
         kappa_path = self.kappa_map_paths[idx]
         suffix = os.path.basename(kappa_path).split("_", 1)[1].rsplit(".", 1)[0]
+        if self.noiseless:
+            output_path = os.path.join(self.data_dir, "flat", f"analysis_sqclpdpm_{suffix}_sl{self.scale_angle}_noiseless.npy")
+        else:
+            output_path = os.path.join(self.data_dir, "flat", f"analysis_sqclpdpm_{suffix}_sl{self.scale_angle}_ngal{self.ngal}.npy")
+
+        if os.path.exists(output_path) and not self.overwrite:
+            logging.info(f"Skipping {output_path}")
+            return
         logging.info(f"Reading and processing kappa map from {kappa_path}")
-        kappa_map, snr_map = self._read_addNoise_smoothing(kappa_path, seed=idx, noiseless=noiseless)
+        kappa_map, snr_map = self._read_addNoise_smoothing(kappa_path, seed=idx)
 
         patches_kappa = [get_patch_pixels(hp.gnomview(kappa_map, nest=self.nest, rot=point, xsize=self.xsize*self.padding, reso=self.reso, return_projected_map=True, no_plot=True), self.xsize) for point in self.points_lonlatdeg]
         patches_snr = [get_patch_pixels(hp.gnomview(snr_map, nest=self.nest, rot=point, xsize=self.xsize*self.padding, reso=self.reso, return_projected_map=True, no_plot=True), self.xsize) for point in self.points_lonlatdeg]
@@ -69,10 +77,7 @@ class kappa_processor():
             datas = pool.starmap(self._process_patch, args)
 
         data = np.array(datas)
-        if noiseless:
-            output_path = os.path.join(self.data_dir, "flat", f"analysis_eqsqclpdpm_{suffix}_sl{self.scale_angle}_noiseless.npy")
-        else:
-            output_path = os.path.join(self.data_dir, "flat", f"analysis_eqsqclpdpm_{suffix}_sl{self.scale_angle}_ngal{self.ngal}.npy")
+        
         logging.info(f"Saving processed data to {output_path}")
         np.save(output_path, data)
 
@@ -81,15 +86,17 @@ class kappa_processor():
         if i == self.npatch // 2:
             logging.info(f"saving demo patch{i} image")
             fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-            ax[0].imshow(patch_pixels, vmin=-0.024, vmax=0.024)
-            ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
+            cax = ax[0].imshow(patch_pixels, vmin=-0.024, vmax=0.024)
+            fig.colorbar(cax, ax=ax[0])
+            cax = ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
+            fig.colorbar(cax, ax=ax[1])
             fig.savefig(os.path.join(self.data_dir, f"demo_patch{i}.png"))
             plt.close(fig)
 
-        ell, equilateral, squeezed, cl = self._perform_analysis(patch_pixels)
+        ell, squeezed, cl = self._perform_analysis(patch_pixels)
         nu, p, peaks, minima = self._perform_analysis_snr(patch_snr_pixels)
 
-        data_tmp = np.hstack([equilateral, squeezed, cl, p, peaks, minima])
+        data_tmp = np.hstack([squeezed, cl, p, peaks, minima])
         return data_tmp
 
     def _gen_noise(self, seed=0):
@@ -102,8 +109,9 @@ class kappa_processor():
     def _read_addNoise_smoothing(self, path, seed=0):
         logging.info(f"Reading kappa map from {path}")
         kappa_map = hp.read_map(path)
-        noise_map = self._gen_noise(seed)
-        kappa_map += noise_map
+        if not self.noiseless:
+            noise_map = self._gen_noise(seed)
+            kappa_map += noise_map
         logging.info(f"Smoothing kappa map with sigma {self.scale_angle/60*np.pi/180}")
         kappa_map = hp.smoothing(kappa_map, sigma=self.scale_angle/60*np.pi/180, nest=self.nest)
         global_std = np.std(kappa_map)
@@ -112,11 +120,11 @@ class kappa_processor():
     
     def _perform_analysis(self, convergence):
         convergence_map = ConvergenceMap(convergence, angle=self.patch_size * u.deg)
-        ell, equilateral = convergence_map.bispectrum(self.l_edges, configuration='equilateral')
-        _, squeezed = convergence_map.bispectrum(self.l_edges, ratio=0.1, configuration='folded')
+        #ell, equilateral = convergence_map.bispectrum(self.l_edges, configuration='equilateral')
+        ell, squeezed = convergence_map.bispectrum(self.l_edges, ratio=0.1, configuration='folded')
         _, cl = convergence_map.powerSpectrum(self.l_edges)
 
-        return ell, equilateral, squeezed, cl
+        return ell, squeezed, cl
     
     def _perform_analysis_snr(self, snr):
         snr_map = ConvergenceMap(snr, angle=self.patch_size * u.deg)
@@ -140,6 +148,8 @@ class kappa_processor():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
     parser.add_argument('datadir', type=str, help='Data directory')
+    parser.add_argument('--noiseless', action='store_true', help='Noiseless simulation')
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     args = parser.parse_args()
-    kappa_proc = kappa_processor(args.datadir)
+    kappa_proc = kappa_processor(args.datadir, noiseless=args.noiseless, overwrite=args.overwrite)
     kappa_proc.run_analysis()

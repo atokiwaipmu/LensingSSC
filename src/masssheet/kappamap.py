@@ -113,7 +113,9 @@ if __name__ == "__main__":
     os.makedirs(save_path, exist_ok=True)
 
     # extract seed from datadir
-    seed = os.path.basename(args.datadir).split("_")[-2]
+    seed = os.path.basename(args.datadir).split('_')[4][1:]
+    if "rfof" in os.path.basename(args.datadir).split('_'):
+        seed = os.path.basename(args.datadir).split('_')[-10][1:]
 
     for zs in config.zs_list:
         logging.info(f"Computing weak lensing convergence maps for zs={zs}")

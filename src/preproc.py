@@ -2,27 +2,12 @@ import argparse
 import logging
 import os
 import numpy as np
-from astropy.cosmology import FlatLambdaCDM
+import healpy as hp
 from nbodykit.lab import BigFileCatalog
+from src.utilities import CosmologySettings
 
 # Setup logging to provide information on the process
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-class CosmologySettings:
-    def __init__(self, h=0.6774, om=0.309):
-        """
-        Initialize the cosmology with specified Hubble constant (h) and matter density (om).
-        Default values correspond to the Planck15 cosmology.
-        """
-        self.h = h
-        self.om = om
-        self.cosmo = FlatLambdaCDM(H0=self.h * 100, Om0=self.om)
-
-    def get_cosmology(self):
-        """
-        Return the cosmology object for further use in distance calculations.
-        """
-        return self.cosmo
 
 class MassSheetProcessor:
     def __init__(self, msheets, cosmo, extra_index=100):
@@ -89,14 +74,14 @@ class MassSheetProcessor:
         volume_diff = 4 * np.pi * (chi1**3 - chi2**3) / (3 * self.npix)
         delta = map_for_slice / volume_diff / self.rhobar - 1
 
-        return delta, chi1 / self.cosmo.h, chi2 / self.cosmo.h
+        return delta
 
-def save_mass_sheets(msheets, datadir, overwrite=False):
+def save_mass_sheets(msheets, dir_output, overwrite=False):
     """
     Save the processed mass sheets to the specified directory.
     """
     processor = MassSheetProcessor(msheets, cosmo)
-    os.makedirs(os.path.join(datadir, "mass_sheets"), exist_ok=True)
+    os.makedirs(dir_output, exist_ok=True)
     prev_end = None
 
     for i in range(20, 100):
@@ -104,7 +89,7 @@ def save_mass_sheets(msheets, datadir, overwrite=False):
             logging.info(f"Sheet {i} is empty. Skipping...")
             continue
 
-        save_path = f"{datadir}/mass_sheets/delta-sheet-{i}.npz"
+        save_path = os.path.join(dir_output, f"delta-sheet-{str(i).zfill(2)}.fits")
         if os.path.exists(save_path) and not overwrite:
             logging.info(f"Sheet {i} already exists. Skipping...")
             prev_end = None
@@ -112,21 +97,24 @@ def save_mass_sheets(msheets, datadir, overwrite=False):
 
         start, end = processor.get_indices(i, start=prev_end)
         prev_end = end
-        delta, chi1, chi2 = processor.get_mass_sheet(i, start, end)
-        np.savez(save_path, delta=np.array(delta, dtype="float32"), chi1=np.asarray([chi1]), chi2=np.asarray([chi2]))
+        delta = processor.get_mass_sheet(i, start, end)
+        hp.write_map(save_path, delta.astype('float32'), nest=True)
 
-def main(datadir, overwrite=False):
+def main(datadir, dir_output, overwrite=False):
     """
     Main function to run the mass sheet processing and saving.
     """
-    cat = BigFileCatalog(os.path.join(datadir, "usmesh/"), dataset="HEALPIX/")
-    save_mass_sheets(cat, datadir, overwrite)
+    cat = BigFileCatalog(datadir, dataset="HEALPIX/")
+    if dir_output is None:
+        dir_output = os.path.join(datadir, "..", "mass_sheets")
+    save_mass_sheets(cat, dir_output, overwrite)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
-    parser.add_argument('datadir', type=str, help='Data directory containing input files')
-    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing mass sheets if they exist')
+    parser.add_argument("datadir", type=str, help="Input directory containing mass sheets")
+    parser.add_argument("--output", type=str, help="Output directory to save processed mass sheets")
+    parser.add_argument('--overwrite', action='store_true', help='Overwrite existing preprocessed files')
     args = parser.parse_args()
 
     cosmo = CosmologySettings().get_cosmology()  # Set the cosmology parameters
-    main(args.datadir, args.overwrite)  # Run the main process
+    main(args.datadir, args.output, args.overwrite)
