@@ -40,7 +40,7 @@ This repository contains the code used to produce the results in the paper "Lens
 - the redshift dependence of SSC contribution
 
 ## Setup
-- Generate lensing maps using the big box (5 or 3.75 Gpc/h) and the heavily tiled box (625Mpc/h * 8^3)
+- Generate lensing maps using the big box `$(5 or 3.75 Gpc/h)$` and the heavily tiled box `$(625Mpc/h \times 8^3)$`
 ![Config](img/setting/light_cone_configuration.png)
 ![lensing](img/setting/lensefficiency.png)
 By comparing the lightcone and small box size in this setup, we can barely capture the SSC contribution for z_source < 2.0.
@@ -49,6 +49,9 @@ But we can capture the SSC contribution for z_source = 3.0.
 - source_redshift zs = [0.5, 1.0, 2.0, 3.0]
 - small box size = 625 Gpc/h
 - big box size = 3.75 & 5 Gpc/h
+
+To simplify the analysis, we will use patches of full-sky maps, which are patched in order of Fibonacci numbers.
+![Fibonacci](img/setting/fibonacci_grid.png)
 
 ## Generate kappa maps
 ### preprocessing the mass sheets
@@ -61,8 +64,8 @@ by default, it will create `/mass_sheets` directory in the same directory as the
 
 <summary>Option</summary>
 
-One can change the output directory by specifying the `--output` option.
-Data can be overwritten by specifying the `--overwrite` option.
+- One can change the output directory by specifying the `--output` option.
+- Data can be overwritten by specifying the `--overwrite` option.
 ```sh
 python -m src.preproc /path/to/usmesh --output /path/to/mass_sheets --overwrite --config /path/to/config.yaml
 ```
@@ -78,9 +81,9 @@ By default, it will create a `/kappa_maps` directory in the same location as the
 
 <summary>Option</summary>
 
-One can change the output directory by specifying the `--output` option.
-Data can be overwritten by specifying the `--overwrite` option.
-If needed, one can specify the source redshifts by giving the configuration file, through the `--config` option.
+- One can change the output directory by specifying the `--output` option.
+- Data can be overwritten by specifying the `--overwrite` option.
+- If needed, one can specify the source redshifts by giving the configuration file, through the `--config` option.
 ```sh
 python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa_maps --overwrite --config /path/to/config.yaml
 ```
@@ -96,11 +99,11 @@ By default, it will create a `/flat` directory in the same location as the input
 
 <summary>Option</summary>
 
-One can change the output directory by specifying the `--output` option.
-Data can be overwritten by specifying the `--overwrite` option.
-If needed, one can specify the analysis settings by giving the configuration file, through the `--config` option.
+- One can change the output directory by specifying the `--output` option.
+- Data can be overwritten by specifying the `--overwrite` option.
+- If needed, one can specify the analysis settings by giving the configuration file, through the `--config` option.
 ```sh
-python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwrite
+python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwrite --config /path/to/config.yaml
 ```
 
 </details>
@@ -123,6 +126,14 @@ Both (1) and (2) capture the usual non-Gaussian information (they would have the
 - the ratio as a function of source redshift zs=[0.5, 1, 1.5, 2, 2.5, 3]
 - the ratio as a function of small box size=[0.5, 1, 2, 3..] Gpc
 - the ratio for all the relevant statistics
+
+### Sample plots
+- Correlation matrix
+![Correlation](img/comparison/correlation_zs2.0_oa10_sl2_ngal30.png)
+- Comparison of mean
+![mean](img/comparison/mean_zs2.0_oa10_sl2_ngal30.png)
+- Comparison of diagonal terms of the covariance matrix
+![diagonal](img/comparison/diagonal_zs2.0_oa10_sl2_ngal30.png)
 
 ## URLs for the contents
 - [HalfDome](https://halfdomesims.github.io/)

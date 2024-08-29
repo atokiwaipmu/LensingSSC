@@ -10,14 +10,14 @@ from src.utils import CosmologySettings
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MassSheetProcessor:
-    def __init__(self, msheets, cosmo, extra_index=100, a_interval=0.01):
+    def __init__(self, msheets, cosmo, extra_index=100):
         """
         Initialize the mass sheet processor with cosmology settings and the mass sheets catalog.
         """
         self.msheets = msheets
         self.cosmo = cosmo
         self.extra_index = extra_index
-        self.a_interval = a_interval
+        self.a_interval = msheets.attrs['aemitIndex.edges'][1] - msheets.attrs['aemitIndex.edges'][0]
         self.npix = msheets.attrs['healpix.npix'][0]  # Number of pixels in the HEALPix map
         self.boxsize = msheets.attrs['BoxSize'][0]  # Size of the simulation box
         self.M_cdm = msheets.attrs['MassTable'][1]  # Mass of dark matter particles
