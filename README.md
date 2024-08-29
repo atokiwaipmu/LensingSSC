@@ -64,7 +64,7 @@ by default, it will create `/mass_sheets` directory in the same directory as the
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
 ```sh
-python -m src.preproc /path/to/usmesh --output /path/to/mass_sheets --overwrite
+python -m src.preproc /path/to/usmesh --output /path/to/mass_sheets --overwrite --config /path/to/config.yaml
 ```
 </details>
 
@@ -80,8 +80,9 @@ By default, it will create a `/kappa_maps` directory in the same location as the
 
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
+If needed, one can specify the source redshifts by giving the configuration file, through the `--config` option.
 ```sh
-python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa_maps --overwrite
+python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa_maps --overwrite --config /path/to/config.yaml
 ```
 </details>
 
@@ -97,7 +98,7 @@ By default, it will create a `/flat` directory in the same location as the input
 
 One can change the output directory by specifying the `--output` option.
 Data can be overwritten by specifying the `--overwrite` option.
-
+If needed, one can specify the analysis settings by giving the configuration file, through the `--config` option.
 ```sh
 python -m src.analysis_patch /path/to/kappa_maps --output /path/to/flat --overwrite
 ```

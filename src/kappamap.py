@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import yaml
 import warnings
 
 import numpy as np
@@ -10,8 +11,7 @@ from astropy import cosmology
 from astropy import units as u
 from mpi4py import MPI
 
-from src.utils.ConfigData import ConfigData
-from src.utilities import CosmologySettings, extract_seed_from_directory
+from src.utils import CosmologySettings, extract_seed_from_path
 
 # Suppress future warnings and set up logging
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -102,41 +102,54 @@ def compute_weak_lensing_maps(data_path, save_path, zs, i_start=28, i_end=99):
 
     logging.info("Computation of weak lensing convergence maps completed.")
 
-def main(args, config):
+def main(datadir, output=None, zs_list = [0.5, 1.0, 2.0, 3.0], overwrite=False):
     """
     Main execution function to configure the environment and run the computation.
     """
     # Define paths for data and saving results
-    data_path = os.path.join(args.datadir, "mass_sheets")
-    if args.output is not None:
-        save_path = args.output
+    if output is not None:
+        save_path = output
     else:
-        save_path = os.path.join(args.datadir, "kappa")
+        save_path = os.path.join(datadir, "..", "kappa")
     os.makedirs(save_path, exist_ok=True)
 
     # Extract seed from directory name
-    seed = extract_seed_from_directory(args.datadir)
+    seed = extract_seed_from_path(datadir)
 
     # Loop through the redshift list and compute maps
-    for zs in config.zs_list:
+    for zs in zs_list:
         logging.info(f"Computing weak lensing convergence maps for zs={zs}")
         save_path_zs = os.path.join(save_path, f"kappa_zs{zs:.1f}_{seed}.fits")
-        if os.path.exists(save_path_zs) and not args.overwrite:
+        if os.path.exists(save_path_zs) and not overwrite:
             logging.info(f"Output file {save_path_zs} already exists. Skipping.")
             continue
-        compute_weak_lensing_maps(data_path, save_path_zs, zs)
+        compute_weak_lensing_maps(datadir, save_path_zs, zs)
 
 if __name__ == "__main__":
-     # Load configuration file
-    config_file = os.path.join(
-        "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs", 'config_data.json'
-    )
-    config = ConfigData.from_json(config_file)
-
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
     parser.add_argument('datadir', type=str, help='Data directory')
     parser.add_argument("--output", type=str, help="Output directory to save convergence maps")
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
+    parser.add_argument('--config', type=str, help='Configuration file path')
     args = parser.parse_args()
 
-    main(args, config)
+   # Initialize empty config
+    config = {}
+
+    # Load configuration from YAML if provided and exists
+    if args.config and os.path.exists(args.config):
+        with open(args.config, 'r') as file:
+            try:
+                config = yaml.safe_load(file)  # Load the configuration from YAML
+            except yaml.YAMLError as exc:
+                print("Warning: The config file is empty or invalid. Proceeding with default parameters.")
+                print(exc)
+
+    # Override YAML configuration with command-line arguments if provided
+    config.update({
+        'datadir': args.datadir,
+        'output': args.output if args.output else config.get('output', None),
+        'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
+    })
+
+    main(**config)

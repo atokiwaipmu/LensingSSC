@@ -1,4 +1,5 @@
 import os
+import yaml
 import logging
 import argparse
 from glob import glob
@@ -10,7 +11,7 @@ import matplotlib.pyplot as plt
 from astropy import units as u
 from lenstools import ConvergenceMap
 
-from src.flatsky.fibonacci_patch import fibonacci_grid_on_sphere, get_patch_pixels
+from src.fibonacci_patch import fibonacci_grid_on_sphere, get_patch_pixels
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -21,12 +22,13 @@ class KappaProcessor:
     It handles noise addition, smoothing, and various analyses like bispectrum and power spectrum.
     """
 
-    def __init__(self, args, nside=8192, npatch=273, patch_size=10, xsize=2048, nbin=15, lmin=300, lmax=3000, scale_angle=2, ngal=30, nest=True):
+    def __init__(self, datadir, output=None, nside=8192, npatch=273, patch_size=10, xsize=2048, nbin=15, lmin=300, lmax=3000, scale_angle=2, ngal=30, nest=True, localmean=False, noiseless=False, overwrite=False):
         """
         Initialize the KappaProcessor with parameters for data processing.
         
         Parameters:
         - datadir: Directory containing input data.
+        - output: Directory to save output data.
         - nside: Healpix resolution parameter.
         - npatch: Number of patches for analysis.
         - patch_size: Size of each patch in degrees.
@@ -36,10 +38,11 @@ class KappaProcessor:
         - scale_angle: Smoothing scale angle in arcminutes.
         - ngal: Galaxy number density for noise simulation.
         - nest: Healpix nesting scheme.
+        - localmean: If use local mean instead of global mean for SNR.
         - noiseless: Flag for noiseless simulation.
         - overwrite: Flag to overwrite existing results.
         """
-        self.data_dir = args.datadir
+        self.datadir = datadir
         self.nside = nside
         self.nest = nest
 
@@ -53,24 +56,28 @@ class KappaProcessor:
         self.padding = 0.1 + np.sqrt(2)
         self.reso = patch_size * 60 / xsize
 
-        self.noiseless = args.noiseless
+        self.noiseless = noiseless
+        self.epsilon = 0.3
         self.ngal = ngal
         self.pixarea = hp.nside2pixarea(self.nside, degrees=True) * 60 ** 2  # arcmin^2
 
-        self.scale_angle = scale_angle  # arcmin
+        self.plot_demo = False
+        self.plot_idx = self.npatch // 2
 
+        self.scale_angle = scale_angle  # arcmin
+        self.localmean = localmean
         self.nbin = nbin
         self.lmin, self.lmax = lmin, lmax
         self.bins = np.linspace(-4, 4, self.nbin + 1, endpoint=True)
         self.l_edges = np.linspace(self.lmin, self.lmax, self.nbin + 1, endpoint=True)
 
-        self.overwrite = args.overwrite
-        if args.output is not None:
-            self.savedir = args.output
+        self.overwrite = overwrite
+        if output is not None:
+            self.savedir = output
         else:
-            self.savedir = os.path.join(self.data_dir, "flat")
+            self.savedir = os.path.join(self.datadir, "..",  "flat")
         os.makedirs(self.savedir, exist_ok=True)
-        self.kappa_map_paths = glob(os.path.join(self.data_dir, "kappa", "*.fits"))
+        self.kappa_map_paths = glob(os.path.join(self.datadir, "*.fits"))
 
     def run_analysis(self):
         """
@@ -88,10 +95,12 @@ class KappaProcessor:
         - idx: Index of the kappa map to process.
         """
         kappa_path = self.kappa_map_paths[idx]
-        suffix = os.path.basename(kappa_path).split("_", 1)[1].rsplit(".", 1)[0]
+        suffix = os.path.basename(kappa_path).split("_", 1)[1].rsplit(".", 1)[0] # "_zs{zs}_s{seed}"
         output_filename = f"analysis_sqclpdpm_{suffix}_sl{self.scale_angle}"
         if not self.noiseless:
             output_filename += f"_ngal{self.ngal}"
+        else:
+            output_filename += "_noiseless"
         output_filename += ".npy"
         output_path = os.path.join(self.savedir, output_filename)
 
@@ -100,7 +109,7 @@ class KappaProcessor:
             return
 
         logging.info(f"Reading and processing kappa map from {kappa_path}")
-        kappa_map, snr_map = self._read_add_noise_and_smooth(kappa_path, seed=idx)
+        kappa_map, global_std = self._read_add_noise_and_smooth(kappa_path, seed=idx)
 
         patches_kappa = [
             get_patch_pixels(
@@ -117,21 +126,7 @@ class KappaProcessor:
             )
             for point in self.points_lonlatdeg
         ]
-        patches_snr = [
-            get_patch_pixels(
-                hp.gnomview(
-                    snr_map,
-                    nest=self.nest,
-                    rot=point,
-                    xsize=self.xsize * self.padding,
-                    reso=self.reso,
-                    return_projected_map=True,
-                    no_plot=True
-                ),
-                self.xsize
-            )
-            for point in self.points_lonlatdeg
-        ]
+        patches_snr = [patch / global_std for patch in patches_kappa]
 
         args = list(zip(range(self.npatch), patches_kappa, patches_snr))
         with mp.Pool(processes=mp.cpu_count()) as pool:
@@ -141,6 +136,20 @@ class KappaProcessor:
 
         logging.info(f"Saving processed data to {output_path}")
         np.save(output_path, data)
+
+    def plot_demo_patch(self, idx, patch_pixels, patch_snr_pixels):
+        """
+        Plots a demo patch for a given kappa map index.
+        
+        Parameters:
+        - idx: Index of the kappa map to plot.
+        """
+        logging.info(f"Saving demo patch {idx} image")
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].imshow(patch_pixels, vmin=-0.024, vmax=0.024)
+        ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
+        fig.savefig(os.path.join(self.datadir, ".." ,f"demo_patch{idx}.png"))
+        plt.close(fig)
 
     def _process_patch(self, i, patch_pixels, patch_snr_pixels):
         """
@@ -152,13 +161,8 @@ class KappaProcessor:
         - patch_snr_pixels: Pixel values of the signal-to-noise ratio patch.
         """
         logging.info(f"Processing patch {i}")
-        if i == self.npatch // 2:
-            logging.info(f"Saving demo patch {i} image")
-            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-            ax[0].imshow(patch_pixels, vmin=-0.024, vmax=0.024)
-            ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
-            fig.savefig(os.path.join(self.data_dir, f"demo_patch{i}.png"))
-            plt.close(fig)
+        if i == self.plot_idx and self.plot_demo:
+            self.plot_demo_patch(i, patch_pixels, patch_snr_pixels)
 
         ell, squeezed, cl = self._perform_analysis(patch_pixels)
         nu, p, peaks, minima = self._perform_analysis_snr(patch_snr_pixels)
@@ -178,7 +182,7 @@ class KappaProcessor:
         """
         logging.info(f"Generating noise with seed {seed}")
         np.random.seed(seed)
-        sigma = 0.3 / np.sqrt(self.ngal * self.pixarea)
+        sigma = self.epsilon / np.sqrt(self.ngal * self.pixarea)
         noise_map = np.random.normal(loc=0, scale=sigma, size=(hp.nside2npix(self.nside),))
         return noise_map
 
@@ -201,8 +205,7 @@ class KappaProcessor:
         logging.info(f"Smoothing kappa map with sigma {self.scale_angle / 60 * np.pi / 180}")
         kappa_map = hp.smoothing(kappa_map, sigma=self.scale_angle / 60 * np.pi / 180, nest=self.nest)
         global_std = np.std(kappa_map)
-        snr_map = kappa_map / global_std
-        return kappa_map, snr_map
+        return kappa_map, global_std
 
     def _perform_analysis(self, convergence):
         """
@@ -265,11 +268,33 @@ class KappaProcessor:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
-    parser.add_argument('datadir', type=str, help='Data directory')
-    parser.add_argument("--output", type=str, help="Output directory to save convergence maps")
+    parser.add_argument('datadir', type=str, help='Data directory of convergence maps')
+    parser.add_argument("--output", type=str, help="Output directory to save results")
     parser.add_argument('--noiseless', action='store_true', help='Noiseless simulation')
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
+    parser.add_argument('--config', type=str, help='Path to YAML config file')
+
     args = parser.parse_args()
 
-    kappa_proc = KappaProcessor(args)
+    # Initialize empty config
+    config = {}
+
+    # Load configuration from YAML if provided and exists
+    if args.config and os.path.exists(args.config):
+        with open(args.config, 'r') as file:
+            try:
+                config = yaml.safe_load(file)  # Load the configuration from YAML
+            except yaml.YAMLError as exc:
+                print("Warning: The config file is empty or invalid. Proceeding with default parameters.")
+                print(exc)
+
+    # Override YAML configuration with command-line arguments if provided
+    config.update({
+        'datadir': args.datadir,
+        'output': args.output if args.output else config.get('output', None),
+        'noiseless': args.noiseless if args.noiseless else config.get('noiseless', False),
+        'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
+    })
+
+    kappa_proc = KappaProcessor(**config)
     kappa_proc.run_analysis()

@@ -4,19 +4,20 @@ import os
 import numpy as np
 import healpy as hp
 from nbodykit.lab import BigFileCatalog
-from src.utilities import CosmologySettings
+from src.utils import CosmologySettings
 
 # Setup logging to provide information on the process
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class MassSheetProcessor:
-    def __init__(self, msheets, cosmo, extra_index=100):
+    def __init__(self, msheets, cosmo, extra_index=100, a_interval=0.01):
         """
         Initialize the mass sheet processor with cosmology settings and the mass sheets catalog.
         """
         self.msheets = msheets
         self.cosmo = cosmo
         self.extra_index = extra_index
+        self.a_interval = a_interval
         self.npix = msheets.attrs['healpix.npix'][0]  # Number of pixels in the HEALPix map
         self.boxsize = msheets.attrs['BoxSize'][0]  # Size of the simulation box
         self.M_cdm = msheets.attrs['MassTable'][1]  # Mass of dark matter particles
@@ -36,7 +37,7 @@ class MassSheetProcessor:
             if self.extra_index is not None:
                 search_start_last = np.min([start + self.extra_index, end])
                 aemit_start = self.msheets['Aemit'][start:search_start_last].compute()
-                change_index_start = np.where(np.diff(aemit_start) == 0.01)[0]
+                change_index_start = np.where(np.diff(aemit_start) == self.a_interval)[0]
                 if len(change_index_start) != 0:
                     logging.info(f"Aemit {np.round(aemit_start[change_index_start[0]], 2):.2f} start changed from {start} to {start + change_index_start[0]}")
                     start += change_index_start[0]
@@ -49,7 +50,7 @@ class MassSheetProcessor:
         if self.extra_index is not None:
             search_end_first = np.max([end - self.extra_index, start])
             aemit_end = self.msheets['Aemit'][search_end_first:end].compute()
-            change_index_end = np.where(np.round(np.diff(aemit_end), 2) == 0.01)[0]      
+            change_index_end = np.where(np.round(np.diff(aemit_end), 2) == self.a_interval)[0]      
             if len(change_index_end) != 0:
                 logging.info(f"Aemit {np.round(aemit_end[change_index_end[0]], 2):.2f} end changed from {end} to {end - change_index_end[0]}")
                 end -= change_index_end[0]
@@ -76,15 +77,16 @@ class MassSheetProcessor:
 
         return delta
 
-def save_mass_sheets(msheets, dir_output, overwrite=False):
+def save_mass_sheets(msheets, dir_output, start=20, end=100, overwrite=False):
     """
     Save the processed mass sheets to the specified directory.
     """
+    cosmo = CosmologySettings().get_cosmology()  # Set the cosmology parameters
     processor = MassSheetProcessor(msheets, cosmo)
     os.makedirs(dir_output, exist_ok=True)
     prev_end = None
 
-    for i in range(20, 100):
+    for i in range(start, end):
         if msheets.attrs['aemitIndex.offset'][i+1] == msheets.attrs['aemitIndex.offset'][i+2]:
             logging.info(f"Sheet {i} is empty. Skipping...")
             continue
@@ -100,7 +102,7 @@ def save_mass_sheets(msheets, dir_output, overwrite=False):
         delta = processor.get_mass_sheet(i, start, end)
         hp.write_map(save_path, delta.astype('float32'), nest=True)
 
-def main(datadir, dir_output, overwrite=False):
+def main(datadir, dir_output=None, overwrite=False):
     """
     Main function to run the mass sheet processing and saving.
     """
@@ -116,5 +118,4 @@ if __name__ == "__main__":
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing preprocessed files')
     args = parser.parse_args()
 
-    cosmo = CosmologySettings().get_cosmology()  # Set the cosmology parameters
-    main(args.datadir, args.output, args.overwrite)
+    main(**vars(args))
