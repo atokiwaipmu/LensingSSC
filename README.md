@@ -40,9 +40,11 @@ This repository contains the code used to produce the results in the paper "Lens
 - the redshift dependence of SSC contribution
 
 ## Setup
-- Generate lensing maps using the big box `$(5 or 3.75 Gpc/h)$` and the heavily tiled box `$(625Mpc/h \times 8^3)$`
+- Generate lensing maps using the big box $`(5 or 3.75 Gpc/h)`$ and the heavily tiled box $`(625Mpc/h \times 8^3)`$
+
 ![Config](img/setting/light_cone_configuration.png)
 ![lensing](img/setting/lensefficiency.png)
+
 By comparing the lightcone and small box size in this setup, we can barely capture the SSC contribution for z_source < 2.0.
 But we can capture the SSC contribution for z_source = 3.0.
 - scale factor bins: [0.01, 0.02, .. , 0.98, 0.99]
@@ -51,6 +53,7 @@ But we can capture the SSC contribution for z_source = 3.0.
 - big box size = 3.75 & 5 Gpc/h
 
 To simplify the analysis, we will use patches of full-sky maps, which are patched in order of Fibonacci numbers.
+
 ![Fibonacci](img/setting/fibonacci_grid.png)
 
 ## Generate kappa maps
