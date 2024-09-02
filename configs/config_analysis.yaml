@@ -1,3 +1,4 @@
+storagedir: /lustre/work/akira.tokiwa/Projects/LensingSSC/data # Path to the data directory
 nside: 8192 # Nside of the map
 npatch: 273 # Number of patches
 patch_size: 10 # Size of the patches in degrees

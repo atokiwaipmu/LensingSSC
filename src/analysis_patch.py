@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from astropy import units as u
 from lenstools import ConvergenceMap
 
+from src.utils import extract_seed_from_path, extract_redshift_from_path
 from src.fibonacci_patch import fibonacci_grid_on_sphere, get_patch_pixels
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -75,9 +76,10 @@ class KappaProcessor:
         if output is not None:
             self.savedir = output
         else:
-            self.savedir = os.path.join(self.datadir, "..",  "flat")
+            self.savedir = os.path.join(os.path.dirname(self.datadir), "flat")
         os.makedirs(self.savedir, exist_ok=True)
         self.kappa_map_paths = glob(os.path.join(self.datadir, "*.fits"))
+        logging.info(f"Found {len(self.kappa_map_paths)} kappa maps in {self.datadir}")
 
     def run_analysis(self):
         """
@@ -95,13 +97,14 @@ class KappaProcessor:
         - idx: Index of the kappa map to process.
         """
         kappa_path = self.kappa_map_paths[idx]
-        suffix = os.path.basename(kappa_path).split("_", 1)[1].rsplit(".", 1)[0] # "_zs{zs}_s{seed}"
-        output_filename = f"analysis_sqclpdpm_{suffix}_sl{self.scale_angle}"
-        if not self.noiseless:
-            output_filename += f"_ngal{self.ngal}"
+        seed = extract_seed_from_path(kappa_path)
+        zs = extract_redshift_from_path(kappa_path)
+        suffix = f"s{seed}_zs{zs:.1f}_oa{self.patch_size}_sl{self.scale_angle}"
+        if self.noiseless:
+            suffix += "_noiseless"
         else:
-            output_filename += "_noiseless"
-        output_filename += ".npy"
+            suffix += f"_ngal{self.ngal}"
+        output_filename = f"analysis_sqclpdpm_{suffix}.npy"
         output_path = os.path.join(self.savedir, output_filename)
 
         if os.path.exists(output_path) and not self.overwrite:
@@ -110,6 +113,7 @@ class KappaProcessor:
 
         logging.info(f"Reading and processing kappa map from {kappa_path}")
         kappa_map, global_std = self._read_add_noise_and_smooth(kappa_path, seed=idx)
+        self.plot_kappa_map(kappa_map, seed, zs)
 
         patches_kappa = [
             get_patch_pixels(
@@ -126,7 +130,10 @@ class KappaProcessor:
             )
             for point in self.points_lonlatdeg
         ]
-        patches_snr = [patch / global_std for patch in patches_kappa]
+        if self.localmean:
+            patches_snr = [patch / np.std(patch) for patch in patches_kappa]
+        else:
+            patches_snr = [patch / global_std for patch in patches_kappa]
 
         args = list(zip(range(self.npatch), patches_kappa, patches_snr))
         with mp.Pool(processes=mp.cpu_count()) as pool:
@@ -136,6 +143,18 @@ class KappaProcessor:
 
         logging.info(f"Saving processed data to {output_path}")
         np.save(output_path, data)
+
+    def plot_kappa_map(self, kappa_map, seed, zs):
+        """
+        Plots the kappa map for a given index.
+        
+        Parameters:
+        - idx: Index of the kappa map to plot.
+        """
+        fig = plt.figure(figsize=(10, 5))
+        hp.mollview(kappa_map, nest=self.nest, title='Kappa Map: Seed {}, source redshift {}, scale angle {}'.format(seed, zs, self.scale_angle), fig=fig.number, min=-0.024, max=0.024)
+        fig.savefig(os.path.join(os.path.dirname(self.datadir), f"kappa_seed{seed}_zs{zs:.1f}_sl{self.scale_angle}.png"))
+        plt.close(fig)
 
     def plot_demo_patch(self, idx, patch_pixels, patch_snr_pixels):
         """
@@ -148,7 +167,7 @@ class KappaProcessor:
         fig, ax = plt.subplots(1, 2, figsize=(10, 5))
         ax[0].imshow(patch_pixels, vmin=-0.024, vmax=0.024)
         ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
-        fig.savefig(os.path.join(self.datadir, ".." ,f"demo_patch{idx}.png"))
+        fig.savefig(os.path.join(os.path.dirname(self.datadir),f"demo_patch{idx}.png"))
         plt.close(fig)
 
     def _process_patch(self, i, patch_pixels, patch_snr_pixels):
@@ -295,6 +314,13 @@ if __name__ == '__main__':
         'noiseless': args.noiseless if args.noiseless else config.get('noiseless', False),
         'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
     })
+
+    # Define the allowed keys
+    allowed_keys = {
+        'datadir', 'output', 'nside', 'npatch', 'patch_size', 'xsize', 'nbin', 
+        'lmin', 'lmax', 'scale_angle', 'ngal', 'nest', 'localmean', 'noiseless', 'overwrite'
+    }
+    config = {k: v for k, v in config.items() if k in allowed_keys}
 
     kappa_proc = KappaProcessor(**config)
     kappa_proc.run_analysis()

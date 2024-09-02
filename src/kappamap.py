@@ -152,4 +152,7 @@ if __name__ == "__main__":
         'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
     })
 
+    allowed_keys = {'datadir', 'output', 'zs_list', 'overwrite'}
+    config = {k: v for k, v in config.items() if k in allowed_keys}
+
     main(**config)

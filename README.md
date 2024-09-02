@@ -79,7 +79,7 @@ python -m src.preproc /path/to/usmesh --output /path/to/mass_sheets --overwrite 
 python -m src.kappamap /path/to/mass_sheets
 ```
 This will generate the kappa maps for each source redshift. 
-By default, it will create a `/kappa_maps` directory in the same location as the input file.
+By default, it will create a `/kappa` directory in the same location as the input file.
 <details>
 
 <summary>Option</summary>
@@ -88,13 +88,13 @@ By default, it will create a `/kappa_maps` directory in the same location as the
 - Data can be overwritten by specifying the `--overwrite` option.
 - If needed, one can specify the source redshifts by giving the configuration file, through the `--config` option.
 ```sh
-python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa_maps --overwrite --config /path/to/config.yaml
+python -m src.kappamap /path/to/mass_sheets --output /path/to/kappa --overwrite --config /path/to/config.yaml
 ```
 </details>
 
 ### Do analysis on the kappa maps
 ```sh
-python -m src.analysis_patch /path/to/kappa_maps 
+python -m src.analysis_patch /path/to/kappa
 ```
 This will generate the kappa maps using the Born approximation.
 By default, it will create a `/flat` directory in the same location as the input file.
@@ -132,11 +132,11 @@ Both (1) and (2) capture the usual non-Gaussian information (they would have the
 
 ### Sample plots
 - Correlation matrix
-![Correlation](img/comparison/correlation_zs2.0_oa10_sl2_ngal30.png)
+![Correlation](img/comparison/correlation_zs2.0_oa10_sl2_noiseless.png)
 - Comparison of mean
-![mean](img/comparison/mean_zs2.0_oa10_sl2_ngal30.png)
+![mean](img/comparison/mean_zs2.0_oa10_sl2_noiseless.png)
 - Comparison of diagonal terms of the covariance matrix
-![diagonal](img/comparison/diagonal_zs2.0_oa10_sl2_ngal30.png)
+![diagonal](img/comparison/diagonal_zs2.0_oa10_sl2_noiseless.png)
 
 ## URLs for the contents
 - [HalfDome](https://halfdomesims.github.io/)
