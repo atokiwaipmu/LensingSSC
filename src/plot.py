@@ -31,6 +31,7 @@ def plot_cov(fname, cov_tiled, cov_bigbox, title_tiled, title_bigbox, labels):
         axes.invert_yaxis()
 
     fig.savefig(fname, bbox_inches='tight')
+    print(f"Saved: {fname}")
     plt.show()
     plt.close(fig)
 
@@ -65,6 +66,7 @@ def plot_corr(fname, corr_tiled, corr_bigbox, title, title_tiled, title_bigbox, 
     ax_title.axis('off')
 
     fig.savefig(fname, bbox_inches='tight')
+    print(f"Saved: {fname}")
     plt.show()
     plt.close(fig)
 
@@ -150,6 +152,7 @@ def plot_stats(fname, title, title_tiled, title_bigbox, title_attrs, ell, nu, me
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
     plt.savefig(fname, bbox_inches='tight')
+    print(f"Saved: {fname}")
     plt.show()
     plt.close(fig)
 
@@ -245,5 +248,8 @@ if __name__ == "__main__":
 
     data_tiled = glob(os.path.join(config["storagedir"], "tiled", "*", "flat", f"analysis_sqclpdpm_*_{suffix}.npy"))
     data_bigbox = glob(os.path.join(config["storagedir"], "bigbox", "*", "flat", f"analysis_sqclpdpm_*_{suffix}.npy"))
+
+    print("Tiled data found:", len(data_tiled))
+    print("BigBox data found:", len(data_bigbox))
 
     main(args.imgdir, suffix, data_tiled, data_bigbox, ell, nu, args.zs, oa)

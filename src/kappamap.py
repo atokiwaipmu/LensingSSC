@@ -3,13 +3,14 @@ import logging
 import os
 import yaml
 import warnings
+from functools import partial
 
 import numpy as np
 import healpy as hp
 from astropy import constants as const
 from astropy import cosmology
 from astropy import units as u
-from mpi4py import MPI
+import multiprocessing as mp
 
 from src.utils import CosmologySettings, extract_seed_from_path
 
@@ -57,6 +58,19 @@ def index_to_chi(index, cosmo):
     chi1, chi2 = cosmo.comoving_distance([z1, z2]).value * cosmo.h
     return chi1, chi2
 
+def process_delta_sheet(i, data_path, cosmo, mapper, wlen_chi_kappa, zs):
+    logging.info(f"Processing delta sheet index {i}")
+    delta = load_delta_sheet(data_path, i)
+    chi1, chi2 = index_to_chi(i, cosmo)
+    mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
+    return mapper.maps["kappa"]
+
+def reduce_maps(results):
+    global_kappa = np.zeros_like(results[0])
+    for local_kappa in results:
+        global_kappa += local_kappa
+    return global_kappa
+
 def compute_weak_lensing_maps(data_path, save_path, zs, i_start=28, i_end=99):
     """
     Compute weak lensing convergence maps for a given redshift.
@@ -77,29 +91,20 @@ def compute_weak_lensing_maps(data_path, save_path, zs, i_start=28, i_end=99):
     mapper = SheetMapper()
     mapper.new_map("kappa")
 
-    # Initialize MPI
-    comm = MPI.COMM_WORLD
-    size = comm.Get_size()
-    rank = comm.Get_rank()
+    # Create a partial function with fixed arguments for use with multiprocessing
+    process_partial = partial(process_delta_sheet, data_path=data_path, cosmo=cosmo,
+                              mapper=mapper, wlen_chi_kappa=wlen_chi_kappa, zs=zs)
+    
+    # Use multiprocessing Pool to parallelize the work
+    with mp.Pool(processes=mp.cpu_count()) as pool:
+        results = pool.map(process_partial, range(i_start, i_end))
 
-    # Process delta sheets across MPI ranks
-    for i in range(i_start, i_end):
-        if (i - i_start) % size == rank:
-            logging.info(f"Rank {rank} processing delta sheet index {i}")
-            delta = load_delta_sheet(data_path, i)
-            chi1, chi2 = index_to_chi(i, cosmo)
-            mapper.add_sheet_to_map("kappa", delta.astype('float32'), wlen_chi_kappa, chi1, chi2, cosmo, zs)
+    # Reduce the results across all processes
+    global_kappa = reduce_maps(results)
 
-    # Gather and reduce local maps across all processes
-    local_kappa = mapper.maps["kappa"]
-    global_kappa = np.zeros_like(local_kappa) if rank == 0 else None
-    comm.Reduce([local_kappa, MPI.FLOAT], [global_kappa, MPI.FLOAT], op=MPI.SUM, root=0)
-
-    # Save the results at the root process
-    if rank == 0:
-        hp.write_map(save_path, global_kappa, dtype=np.float32)
-        logging.info(f"Output maps saved to {save_path}")
-
+    # Save the results
+    hp.write_map(save_path, global_kappa, dtype=np.float32)
+    logging.info(f"Output maps saved to {save_path}")
     logging.info("Computation of weak lensing convergence maps completed.")
 
 def main(datadir, output=None, zs_list = [0.5, 1.0, 2.0, 3.0], overwrite=False):

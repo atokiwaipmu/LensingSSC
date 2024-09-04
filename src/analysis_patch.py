@@ -12,6 +12,7 @@ from astropy import units as u
 from lenstools import ConvergenceMap
 
 from src.utils import extract_seed_from_path, extract_redshift_from_path
+from src.find_extrema import find_extrema
 from src.fibonacci_patch import fibonacci_grid_on_sphere, get_patch_pixels
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -115,6 +116,14 @@ class KappaProcessor:
         kappa_map, global_std = self._read_add_noise_and_smooth(kappa_path, seed=idx)
         self.plot_kappa_map(kappa_map, seed, zs)
 
+        fullsky_filename = f"fullsky_clpdpm_{suffix}.npy"
+        fullsky_path = os.path.join(self.savedir, fullsky_filename)
+        if os.path.exists(fullsky_path) and not self.overwrite:
+            logging.info(f"Skipping full-sky analysis for {fullsky_path}")
+        else:
+            fullsky_data = self._process_fullsky(kappa_map)
+            np.save(fullsky_path, fullsky_data)
+
         patches_kappa = [
             get_patch_pixels(
                 hp.gnomview(
@@ -151,9 +160,13 @@ class KappaProcessor:
         Parameters:
         - idx: Index of the kappa map to plot.
         """
+        fname = os.path.join(os.path.dirname(self.datadir), f"kappa_seed{seed}_zs{zs:.1f}_sl{self.scale_angle}.png")
+        if os.path.exists(fname) and not self.overwrite:
+            logging.info(f"Skipping plot for {fname}")
+            return
         fig = plt.figure(figsize=(10, 5))
         hp.mollview(kappa_map, nest=self.nest, title='Kappa Map: Seed {}, source redshift {}, scale angle {}'.format(seed, zs, self.scale_angle), fig=fig.number, min=-0.024, max=0.024)
-        fig.savefig(os.path.join(os.path.dirname(self.datadir), f"kappa_seed{seed}_zs{zs:.1f}_sl{self.scale_angle}.png"))
+        fig.savefig(fname, bbox_inches='tight')
         plt.close(fig)
 
     def plot_demo_patch(self, idx, patch_pixels, patch_snr_pixels):
@@ -169,6 +182,23 @@ class KappaProcessor:
         ax[1].imshow(patch_snr_pixels, vmin=-2, vmax=2)
         fig.savefig(os.path.join(os.path.dirname(self.datadir),f"demo_patch{idx}.png"))
         plt.close(fig)
+
+    def _process_fullsky(self, kappa_map):
+        """
+        Processes the full-sky kappa map, performing various analyses.
+        
+        Parameters:
+        - kappa_map: Full-sky kappa map.
+        
+        Returns:
+        - Tuple of the bispectrum, power spectrum, and PDF.
+        """
+        cl = hp.anafast(kappa_map, lmax=self.lmax)
+        p = np.histogram(kappa_map, bins=self.bins)[0]
+        _, peak_amp, _, minima_amp = find_extrema(kappa_map, nside=self.nside)
+        peaks = np.histogram(peak_amp, bins=self.bins)[0]
+        minima = np.histogram(minima_amp, bins=self.bins)[0]
+        return cl, p, peaks, minima
 
     def _process_patch(self, i, patch_pixels, patch_snr_pixels):
         """
