@@ -129,4 +129,4 @@ if __name__ == '__main__':
         'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
     })
 
-    main(**config)
+    main(savedir=args.output)

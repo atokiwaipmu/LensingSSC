@@ -1,5 +1,6 @@
 import argparse
 import logging
+import re
 import os
 import yaml
 import warnings
@@ -10,9 +11,8 @@ import healpy as hp
 from astropy import constants as const
 from astropy import cosmology
 from astropy import units as u
+from astropy.cosmology import FlatLambdaCDM
 import multiprocessing as mp
-
-from src.utils import CosmologySettings, extract_seed_from_path
 
 # Suppress future warnings and set up logging
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -85,7 +85,7 @@ def compute_weak_lensing_maps(data_path, save_path, zs, i_start=28, i_end=99):
     logging.info("Starting the computation of weak lensing convergence maps.")
 
     # Initialize cosmology model
-    cosmo = CosmologySettings().get_cosmology()
+    cosmo = FlatLambdaCDM(H0=0.6774 * 100, Om0=0.309)
 
     # Initialize SheetMapper and create maps
     mapper = SheetMapper()
@@ -106,6 +106,16 @@ def compute_weak_lensing_maps(data_path, save_path, zs, i_start=28, i_end=99):
     hp.write_map(save_path, global_kappa, dtype=np.float32)
     logging.info(f"Output maps saved to {save_path}")
     logging.info("Computation of weak lensing convergence maps completed.")
+
+@staticmethod
+def extract_seed_from_path(path):
+    # Regular expression to find the pattern '_s{seed_number}_'
+    match = re.search(r'_s(\d+)_', path)
+    if match:
+        return int(match.group(1))
+    else:
+        logging.error("Seed number not found in the given path.")
+        return None
 
 def main(datadir, output=None, zs_list = [0.5, 1.0, 2.0, 3.0], overwrite=False):
     """

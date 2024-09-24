@@ -4,7 +4,7 @@ import os
 import numpy as np
 import healpy as hp
 from nbodykit.lab import BigFileCatalog
-from src.utils import CosmologySettings
+from astropy.cosmology import FlatLambdaCDM
 
 # Setup logging to provide information on the process
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -81,7 +81,7 @@ def save_mass_sheets(msheets, dir_output, start=20, end=100, overwrite=False):
     """
     Save the processed mass sheets to the specified directory.
     """
-    cosmo = CosmologySettings().get_cosmology()  # Set the cosmology parameters
+    cosmo = FlatLambdaCDM(H0=0.6774 * 100, Om0=0.309)  # Set the cosmology parameters
     processor = MassSheetProcessor(msheets, cosmo)
     os.makedirs(dir_output, exist_ok=True)
     prev_end = None

@@ -1,0 +1,28 @@
+PatchProcessor:
+  npatch: 273
+  patch_size: 10
+  xsize: 2048
+
+AnalyserCommon:
+  nbin: 15
+  lmin: 300
+  lmax: 3000
+
+NoiseGenerator:
+  nside: 8192
+  ngal: 30
+  epsilon: 0.3
+
+KappaSmoother:
+  scale_angle: 2
+
+PreKappaProcessor:
+  ngal_list:
+    - 0
+    - 15
+    - 30
+    - 50
+  sl_list:
+    - 2
+    - 5
+    - 8
