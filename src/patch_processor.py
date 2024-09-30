@@ -2,6 +2,8 @@
 import numpy as np
 import healpy as hp
 import logging
+import multiprocessing
+from multiprocessing import shared_memory
 
 from src.fibonacci_helper import FibonacciHelper
 
@@ -24,7 +26,7 @@ class PatchProcessor:
         self.reso = self.patch_size * 60 / self.xsize
         logging.info(f"Initializing PatchProcessor with npatch={npatch}, patch_size={patch_size}")
 
-    def make_patches(self, input_map):
+    def make_patches(self, input_map, num_processes=multiprocessing.cpu_count()):
         """Extracts patches from the input map at valid points.
 
         Args:
@@ -36,22 +38,45 @@ class PatchProcessor:
 
         valid_points = self._get_valid_points()
         points_lonlatdeg = [hp.rotator.vec2dir(hp.ang2vec(*point), lonlat=True) for point in valid_points]
-        #points_lonlatdeg = hp.rotator.vec2dir(hp.ang2vec(*valid_points.T), lonlat=True)
-        patches = np.array([self._make_patch_worker(input_map, point) for point in points_lonlatdeg])
-        return patches.astype(np.float32)
 
-    def _make_patch_worker(self, input_map, point_lonlatdeg):
+        # Create shared memory for the input map
+        shm = shared_memory.SharedMemory(create=True, size=input_map.nbytes)
+        shared_input_map = np.ndarray(input_map.shape, dtype=input_map.dtype, buffer=shm.buf)
+        np.copyto(shared_input_map, input_map)
+
+        try:
+            with multiprocessing.Pool(processes=num_processes) as pool:
+                patches = pool.starmap(
+                    self._extract_patch_worker,
+                    [(shm.name, input_map.shape, input_map.dtype, point) for point in points_lonlatdeg]
+                )
+        finally:
+            # Clean up shared memory
+            shm.close()
+            shm.unlink()
+
+        return np.array(patches).reshape((len(patches), self.xsize, self.xsize)).astype(np.float32)
+
+    def _extract_patch_worker(self, shm_name, shape, dtype, point_lonlatdeg):
         """Extracts a single patch from the input map at a given point.
 
         Args:
-            input_map (np.ndarray): The input full-sky map.
+            shm_name (str): The name of the shared memory block.
+            shape (tuple): The shape of the input map.
+            dtype (np.dtype): The data type of the input map.
             point_lonlatdeg (tuple): The longitude and latitude (in degrees) of the patch center.
 
         Returns:
             np.ndarray: The extracted patch (xsize, xsize).
         """
+
         logging.info(f"Extracting patch at {point_lonlatdeg}")
 
+        # Access the shared memory
+        shm = shared_memory.SharedMemory(name=shm_name)
+        input_map = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
+
+        # Extract the patch
         patch = hp.gnomview(
             input_map,
             nest=False,
@@ -61,6 +86,10 @@ class PatchProcessor:
             return_projected_map=True,
             no_plot=True
         )
+
+        # Clean up shared memory in the worker
+        shm.close()
+
         return FibonacciHelper.get_patch_pixels(patch, self.xsize).astype(np.float32)
     
     def _get_valid_points(self):
