@@ -46,9 +46,12 @@ class FullSkyAnalyser:
         """
 
         cl_disc = self._continuous_to_discrete(cl)
+        logging.info(f"Computing PDF...")
         pdf_vals = self._compute_histogram(data=snr_map)
 
+        logging.info(f"Finding extrema...")
         _, peak_amp, _, minima_amp = self.ef.find_extrema(snr_map)
+        logging.info(f"Computing histograms for peaks and minima...")
         peaks = self._compute_histogram(data=peak_amp)
         minima = self._compute_histogram(data=minima_amp)
 

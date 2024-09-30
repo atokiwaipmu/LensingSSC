@@ -1,4 +1,5 @@
 ## From https://github.com/LSSTDESC/HOS-Y1-prep
+import logging
 import numpy as np
 import healpy as hp
 import multiprocessing as mp
@@ -41,30 +42,17 @@ class ExtremaFinder:
         """
         self._initialize_neighbours()
 
-        def find_extrema_worker(shm_name, shape, dtype, chunk_indices):
-            shm = shared_memory.SharedMemory(name=shm_name)
-            kappa_map_shared = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
-            
-            pixel_val = kappa_map_shared[self.ipix[chunk_indices]]
-            neighbour_vals = kappa_map_shared[self.neighbours.T[:, chunk_indices]]
-            
-            peaks = np.all(np.tile(pixel_val, (8, 1)).T > neighbour_vals, axis=-1)
-            minima = np.all(np.tile(pixel_val, (8, 1)).T < neighbour_vals, axis=-1)
-            
-            shm.close()
-            return peaks, minima
-
         # Create shared memory for the kappa map
         shm = shared_memory.SharedMemory(create=True, size=kappa_map.nbytes)
         kappa_map_shared = np.ndarray(kappa_map.shape, dtype=kappa_map.dtype, buffer=shm.buf)
         np.copyto(kappa_map_shared, kappa_map)
 
         try:
-            chunks = np.array_split(range(self.npix), self.npix // 10000)
+            chunks = np.array_split(range(self.npix), num_processes)
             with mp.Pool(processes=num_processes) as pool:
                 results = pool.starmap(
                     find_extrema_worker,
-                    [(shm.name, kappa_map.shape, kappa_map.dtype, chunk) for chunk in chunks]
+                    [(shm.name, kappa_map.shape, kappa_map.dtype, chunk, self.ipix, self.neighbours, i) for i, chunk in enumerate(chunks)]
                 )
         finally:
             # Clean up shared memory
@@ -82,3 +70,17 @@ class ExtremaFinder:
         minima_amp = kappa_map[self.ipix[minima]]
 
         return peak_pos, peak_amp, minima_pos, minima_amp
+    
+def find_extrema_worker(shm_name, shape, dtype, chunk_indices, ipix, neighbours, i):
+    logging.info(f"Processing chunk {i}")
+    shm = shared_memory.SharedMemory(name=shm_name)
+    kappa_map_shared = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
+    
+    pixel_val = kappa_map_shared[ipix[chunk_indices]]
+    neighbour_vals = kappa_map_shared[neighbours.T[:, chunk_indices]]
+    
+    peaks = np.all(np.tile(pixel_val, (8, 1)).T > neighbour_vals, axis=-1)
+    minima = np.all(np.tile(pixel_val, (8, 1)).T < neighbour_vals, axis=-1)
+    
+    shm.close()
+    return peaks, minima

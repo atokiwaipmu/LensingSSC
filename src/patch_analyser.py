@@ -30,12 +30,16 @@ class PatchAnalyser:
         """
         # Process kappa (convergence) map
         conv_map = ConvergenceMap(patch_pixels, angle=self.patch_size * u.deg)
+        logging.info(f"Computing bispectrum...")
         squeezed_bispectrum = self._compute_bispectrum(conv_map)
+        logging.info(f"Computing power spectrum...")
         cl_power_spectrum = self._compute_power_spectrum(conv_map)
         
         # Process SNR map
         snr_map = ConvergenceMap(patch_snr_pixels, angle=self.patch_size * u.deg)
+        logging.info(f"Computing PDF...")
         pdf_vals = self._compute_pdf(snr_map)
+        logging.info(f"Finding peaks and minima...")
         peaks = self._compute_peak_statistics(snr_map, is_minima=False)
         minima = self._compute_peak_statistics(snr_map, is_minima=True)
         
