@@ -7,16 +7,21 @@ from glob import glob
 import numpy as np
 import multiprocessing as mp
 
-def compute_histogram(data_chunk, bins):
+def compute_histogram_shared(data_chunk, bins, shared_hist, lock):
     hist, _ = np.histogram(data_chunk, bins=bins)
-    return hist
+    with lock:
+        for i in range(len(hist)):
+            shared_hist[i] += hist[i]
 
-def parallel_histogram(data, bins:np.ndarray, num_processes=mp.cpu_count(), chunk_size=10000):
+def parallel_histogram(data, bins, num_processes=mp.cpu_count(), chunk_size=10000):
     data_chunks = np.array_split(data, len(data) // chunk_size)
+    shared_hist = mp.Array('i', len(bins) - 1)
+    lock = mp.Lock()
+    
     with mp.Pool(processes=num_processes) as pool:
-        hist_chunks = pool.starmap(compute_histogram, [(chunk, bins) for chunk in data_chunks])
-    final_hist = np.sum(hist_chunks, axis=0)
-    return final_hist
+        pool.starmap(compute_histogram_shared, [(chunk, bins, shared_hist, lock) for chunk in data_chunks])
+    
+    return np.frombuffer(shared_hist.get_obj(), dtype=np.int32)
 
 def find_data_dirs(workdir="/lustre/work/akira.tokiwa/Projects/LensingSSC/"):
     raw_dirs = sorted(glob(os.path.join(workdir, "data", "*", "*", "usmesh")))
