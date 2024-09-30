@@ -2,7 +2,7 @@
 import numpy as np
 import healpy as hp
 import multiprocessing as mp
-from tqdm import tqdm
+from multiprocessing import shared_memory
 
 class ExtremaFinder:
     """
@@ -41,32 +41,44 @@ class ExtremaFinder:
         """
         self._initialize_neighbours()
 
-        def find_extrema_worker(pixel_val, neighbour_vals):
+        def find_extrema_worker(shm_name, shape, dtype, chunk_indices):
+            shm = shared_memory.SharedMemory(name=shm_name)
+            kappa_map_shared = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
+            
+            pixel_val = kappa_map_shared[self.ipix[chunk_indices]]
+            neighbour_vals = kappa_map_shared[self.neighbours.T[:, chunk_indices]]
+            
             peaks = np.all(np.tile(pixel_val, (8, 1)).T > neighbour_vals, axis=-1)
             minima = np.all(np.tile(pixel_val, (8, 1)).T < neighbour_vals, axis=-1)
+            
+            shm.close()
             return peaks, minima
 
-        neighbour_vals = kappa_map[self.neighbours.T]
-        pixel_val = kappa_map[self.ipix]
+        # Create shared memory for the kappa map
+        shm = shared_memory.SharedMemory(create=True, size=kappa_map.nbytes)
+        kappa_map_shared = np.ndarray(kappa_map.shape, dtype=kappa_map.dtype, buffer=shm.buf)
+        np.copyto(kappa_map_shared, kappa_map)
 
-        neighbours_chunks = np.array_split(neighbour_vals, self.npix // 10000)
-        pixel_val_chunks = np.array_split(pixel_val, self.npix // 10000)
+        try:
+            chunks = np.array_split(range(self.npix), self.npix // 10000)
+            with mp.Pool(processes=num_processes) as pool:
+                results = pool.starmap(
+                    find_extrema_worker,
+                    [(shm.name, kappa_map.shape, kappa_map.dtype, chunk) for chunk in chunks]
+                )
+        finally:
+            # Clean up shared memory
+            shm.close()
+            shm.unlink()
 
-        extrema_chunks = [find_extrema_worker(pixel_val_chunks[i], neighbours_chunks[i]) for i in tqdm(range(len(neighbours_chunks)))]
-
-        #chunks = np.array_split(range(self.npix), self.npix // 10000)
-        #results = [find_extrema_worker(pixel_val[chunk], neighbour_vals[:, chunk]) for chunk in chunks]
-        #with mp.Pool(processes=num_processes) as pool:
-        #    results = pool.starmap(find_extrema_worker, [(pixel_val[chunk], neighbour_vals[:, chunk]) for chunk in chunks])
-
-        peaks_chunks, minima_chunks = zip(*extrema_chunks)
+        peaks_chunks, minima_chunks = zip(*results)
         peaks = np.concatenate(peaks_chunks)
         minima = np.concatenate(minima_chunks)
 
         peak_pos = np.asarray(hp.pix2ang(self.nside, self.ipix[peaks], lonlat=False)).T
-        peak_amp = pixel_val[peaks]
+        peak_amp = kappa_map[self.ipix[peaks]]
 
         minima_pos = np.asarray(hp.pix2ang(self.nside, self.ipix[minima], lonlat=False)).T
-        minima_amp = pixel_val[minima]
+        minima_amp = kappa_map[self.ipix[minima]]
 
         return peak_pos, peak_amp, minima_pos, minima_amp
