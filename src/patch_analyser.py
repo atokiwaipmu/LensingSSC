@@ -16,7 +16,7 @@ class PatchAnalyser:
         self.l_edges = np.logspace(np.log10(self.lmin), np.log10(self.lmax), self.nbin + 1, endpoint=True)
         self.binwidth = self.bins[1] - self.bins[0]
 
-        self.patch_size = pp.patch_size
+        self.patch_size = pp.patch_size_deg
         self.xsize = pp.xsize
 
     def process_patches(self, patches_kappa, patches_snr, num_processes=mp.cpu_count()):
@@ -30,16 +30,12 @@ class PatchAnalyser:
         """
         # Process kappa (convergence) map
         conv_map = ConvergenceMap(patch_pixels, angle=self.patch_size * u.deg)
-        logging.info(f"Computing bispectrum...")
         squeezed_bispectrum = self._compute_bispectrum(conv_map)
-        logging.info(f"Computing power spectrum...")
         cl_power_spectrum = self._compute_power_spectrum(conv_map)
         
         # Process SNR map
         snr_map = ConvergenceMap(patch_snr_pixels, angle=self.patch_size * u.deg)
-        logging.info(f"Computing PDF...")
         pdf_vals = self._compute_pdf(snr_map)
-        logging.info(f"Finding peaks and minima...")
         peaks = self._compute_peak_statistics(snr_map, is_minima=False)
         minima = self._compute_peak_statistics(snr_map, is_minima=True)
         
@@ -77,5 +73,5 @@ class PatchAnalyser:
         # Scale positions to the patch size and apply boundary mask
         tmp_positions = positions.value * self.xsize / self.patch_size
         mask = (tmp_positions[:, 0] > 0) & (tmp_positions[:, 0] < self.xsize - 1) & \
-               (tmp_positions[:, 1] > 0) & (tmp_positions[:, 1] < self.size - 1)
+               (tmp_positions[:, 1] > 0) & (tmp_positions[:, 1] < self.xsize - 1)
         return heights[mask], tmp_positions[mask].astype(int)

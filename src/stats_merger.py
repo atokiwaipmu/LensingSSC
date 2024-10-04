@@ -4,13 +4,13 @@ import numpy as np
 import healpy as hp
 import logging
 
-from src.utils import find_data_dirs
+from src.utils import find_data_dirs, separate_dirs
 from src.info_extractor import InfoExtractor
 
 class StatsMerger:
-    def __init__(self, data_dirs, sl, ngal, oa=10, zs_list=[0.5, 1.0, 2.0, 3.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output"):
+    def __init__(self, data_dirs, sl, ngal, oa=10, zs_list=[0.5, 1.0, 2.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output"):
         self.data_dirs = data_dirs
-        self._separate_dirs()
+        self.tiled_dirs, self.bigbox_dirs = separate_dirs(data_dirs)
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -25,19 +25,9 @@ class StatsMerger:
         self.ell = (self.l_edges[1:] + self.l_edges[:-1]) / 2
         self.nu = (self.bins[1:] + self.bins[:-1]) / 2
 
-    def _separate_dirs(self):
-        self.tiled_dirs = []
-        self.bigbox_dirs = []
-        for data_dir in self.data_dirs:
-            info = InfoExtractor.extract_info_from_path(data_dir)
-            if info['box_type'] == 'tiled':
-                self.tiled_dirs.append(data_dir)
-            elif info['box_type'] == 'bigbox':
-                self.bigbox_dirs.append(data_dir)
-
     def run(self):
-        self._run_and_save(is_patch=False, box_type='tiled')
-        self._run_and_save(is_patch=False, box_type='bigbox')
+        #self._run_and_save(is_patch=False, box_type='tiled')
+        #self._run_and_save(is_patch=False, box_type='bigbox')
         self._run_and_save(is_patch=True, box_type='tiled')
         self._run_and_save(is_patch=True, box_type='bigbox')
 
@@ -57,6 +47,7 @@ class StatsMerger:
             for data_dir in work_dirs:
                 tmp_stats = self._load_stats(data_dir, zs, is_patch)
                 stats_zs.append(tmp_stats)
+            logging.info(f"Loaded stats for zs={zs}, merged {len(stats_zs)} stats")
             stats_zs = np.vstack(stats_zs)
             diags, corr, stds, means = self.total_stats(stats_zs)
             stats[zs] = {
@@ -76,7 +67,7 @@ class StatsMerger:
 
     def _generate_suffix(self, is_patch=False):
         suffix = f"oa{self.oa}_" if is_patch else ""
-        suffix += f"sl{self.sl}_noiseless"
+        suffix += f"noiseless_sl{self.sl}"
         if self.ngal != 0:
             suffix = suffix.replace("noiseless", f"ngal{self.ngal}")
         return suffix
@@ -85,14 +76,14 @@ class StatsMerger:
         info = InfoExtractor.extract_info_from_path(datadir)
         suffix = self._generate_suffix(is_patch)
         if is_patch:
-            fname = f"analysis_sqclpdpm_s{info['seed']}_zs{zs}_{suffix}.npy"
+            fname = f"analysis_zs{zs}_s{info['seed']}_{suffix}.npy"
         else:
             fname = f"fullsky_clpdpm_s{info['seed']}_zs{zs}_{suffix}.npy"
         return fname
 
     def _load_stats(self, data_dir, zs, is_patch=False):
         fname = self._generate_fname(data_dir, zs, is_patch)
-        data = np.load(os.path.join(data_dir, "fullsky", fname)) if not is_patch else np.load(os.path.join(data_dir, "flat", fname))
+        data = np.load(os.path.join(data_dir, "analysis_fullsky", fname)) if not is_patch else np.load(os.path.join(data_dir, "analysis_patch", fname))
 
         if is_patch:
             sq, clkk, pdf, peak, minima = np.split(data, 5, axis=1)
@@ -117,15 +108,17 @@ class EllHelper:
         return bispec * ell**4 / (2*np.pi)**2
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     data_dirs = find_data_dirs()
-    sl = 2
-    ngal_list = [0, 30]
-    for ngal in ngal_list:
-        print(f"Start merging stats for ngal={ngal}")
-        stats_merger = StatsMerger(data_dirs, sl, ngal)
-        try:
-            stats_merger.run()
-        except Exception as e:
-            print(e)
-            logging.error(e)
-            continue
+    sl_list = [2, 5, 8, 10]
+    ngal_list = [0, 7, 15, 30, 50]
+    for sl in sl_list:
+        for ngal in ngal_list:
+            print(f"Start merging stats for ngal={ngal}, sl={sl}")
+            stats_merger = StatsMerger(data_dirs, sl, ngal)
+            try:
+                stats_merger.run()
+            except Exception as e:
+                print(e)
+                logging.error(e)
+                continue

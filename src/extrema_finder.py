@@ -3,7 +3,6 @@ import logging
 import numpy as np
 import healpy as hp
 import multiprocessing as mp
-from multiprocessing import shared_memory
 
 class ExtremaFinder:
     """
@@ -42,22 +41,14 @@ class ExtremaFinder:
         """
         self._initialize_neighbours()
 
-        # Create shared memory for the kappa map
-        shm = shared_memory.SharedMemory(create=True, size=kappa_map.nbytes)
-        kappa_map_shared = np.ndarray(kappa_map.shape, dtype=kappa_map.dtype, buffer=shm.buf)
-        np.copyto(kappa_map_shared, kappa_map)
+        kappa_map_chunks = np.array_split(kappa_map, num_processes)
+        neighbours_chunks = np.array_split(kappa_map[self.neighbours.T], num_processes)
 
-        try:
-            chunks = np.array_split(range(self.npix), num_processes)
-            with mp.Pool(processes=num_processes) as pool:
-                results = pool.starmap(
-                    find_extrema_worker,
-                    [(shm.name, kappa_map.shape, kappa_map.dtype, chunk, self.ipix, self.neighbours, i) for i, chunk in enumerate(chunks)]
-                )
-        finally:
-            # Clean up shared memory
-            shm.close()
-            shm.unlink()
+        with mp.Pool(processes=num_processes) as pool:
+            results = pool.starmap(
+                find_extrema_worker,
+                [(kappa_map_chunks[i], neighbours_chunks[i]) for i in range(num_processes)]
+            )
 
         peaks_chunks, minima_chunks = zip(*results)
         peaks = np.concatenate(peaks_chunks)
@@ -71,16 +62,7 @@ class ExtremaFinder:
 
         return peak_pos, peak_amp, minima_pos, minima_amp
     
-def find_extrema_worker(shm_name, shape, dtype, chunk_indices, ipix, neighbours, i):
-    logging.info(f"Processing chunk {i}")
-    shm = shared_memory.SharedMemory(name=shm_name)
-    kappa_map_shared = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
-    
-    pixel_val = kappa_map_shared[ipix[chunk_indices]]
-    neighbour_vals = kappa_map_shared[neighbours.T[:, chunk_indices]]
-    
+def find_extrema_worker(pixel_val, neighbour_vals): 
     peaks = np.all(np.tile(pixel_val, (8, 1)).T > neighbour_vals, axis=-1)
     minima = np.all(np.tile(pixel_val, (8, 1)).T < neighbour_vals, axis=-1)
-    
-    shm.close()
     return peaks, minima

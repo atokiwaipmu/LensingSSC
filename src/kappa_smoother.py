@@ -1,88 +1,202 @@
-
-import os
+import logging
+from pathlib import Path
+from typing import List, Optional, Dict
 import numpy as np
 import healpy as hp
-import glob
-import logging
 
 from src.info_extractor import InfoExtractor
-from src.noise_generator import NoiseGenerator
 
 class KappaSmoother:
-    def __init__(self, datadir, nside, ngal_list, sl_list, overwrite=False):
-        self.datadir = datadir
-        self._check_ifkappa_dir_exists()
+    """
+    A class to smooth kappa maps with specified smoothing scales and noise levels.
 
+    Attributes:
+        datadir (Path): The directory containing kappa maps.
+        nside (int): The Healpix nside parameter.
+        ngal_list (List[int]): List of galaxy numbers for noise generation.
+        sl_list (List[float]): List of smoothing scales in arcminutes.
+        overwrite (bool): Flag to overwrite existing smoothed maps.
+    """
+
+    # Constants for unit conversions
+    ARCMIN_TO_RAD = np.pi / (180.0 * 60.0)
+
+    def __init__(
+        self,
+        datadir: str,
+        nside: int,
+        sl_list: List[float],
+        overwrite: bool = False,
+    ):
+        """
+        Initializes the KappaSmoother with directory paths and parameters.
+
+        Args:
+            datadir (str): Path to the data directory.
+            nside (int): Healpix nside parameter.
+            ngal_list (List[int]): List of galaxy numbers.
+            sl_list (List[float]): List of smoothing scales in arcminutes.
+            overwrite (bool, optional): Whether to overwrite existing files. Defaults to False.
+        """
+        self.datadir = Path(datadir)
         self.nside = nside
-        self.smoothed_dir = os.path.join(self.datadir, 'smoothed_maps')
-        os.makedirs(self.smoothed_dir, exist_ok=True)
-
-        self.ngal_list = ngal_list
         self.sl_list = sl_list
         self.overwrite = overwrite
 
-        self.ng = NoiseGenerator(nside=self.nside)
+        self.smoothed_dir = self.datadir / "smoothed_maps"
+        self.smoothed_dir.mkdir(parents=True, exist_ok=True)
 
-    def _check_ifkappa_dir_exists(self):
-        self.kappa_dir = os.path.join(self.datadir, 'kappa')
-        if not os.path.exists(self.kappa_dir):
-            logging.error(f"Kappa maps directory not found in {self.kappa_dir}")
-            raise FileNotFoundError(f"Kappa maps directory not found in {self.kappa_dir}")
-        
-        self.kappa_map_paths = sorted(glob.glob(os.path.join(self.kappa_dir, '*.fits')))
-        if not self.kappa_map_paths:
+        self.noisy_dir = self.datadir / "noisy_maps"
+        self.noisy_map_paths = self._get_noisy_map_paths()
+
+        self.kappa_dir = self.datadir / "kappa"
+        self.kappa_map_paths = self._get_kappa_map_paths()
+
+    def _get_kappa_map_paths(self) -> List[Path]:
+        """
+        Retrieves and validates the kappa map paths.
+
+        Returns:
+            List[Path]: Sorted list of kappa map file paths.
+
+        Raises:
+            FileNotFoundError: If kappa directory or maps are not found.
+        """
+        if not self.kappa_dir.exists():
+            logging.error(f"Kappa maps directory not found: {self.kappa_dir}")
+            raise FileNotFoundError(f"Kappa maps directory not found: {self.kappa_dir}")
+
+        kappa_map_paths = sorted(self.kappa_dir.glob("*.fits"))
+        if not kappa_map_paths:
             logging.error(f"No kappa maps found in {self.kappa_dir}")
             raise FileNotFoundError(f"No kappa maps found in {self.kappa_dir}")
-        logging.info(f"Found {len(self.kappa_map_paths)} kappa maps")
 
-    def smooth_kappa(self):
-        for idx in range(len(self.kappa_map_paths)):
-            logging.info(f"Smoothing {idx+1}/{len(self.kappa_map_paths)} kappa maps")
-            self._reset_variables()
-            self.kappa_path = self.kappa_map_paths[idx]
+        logging.info(f"Found {len(kappa_map_paths)} kappa maps in {self.kappa_dir}")
+        return kappa_map_paths
+    
+    def _get_noisy_map_paths(self) -> List[Path]:
+        """
+        Retrieves and validates the noisy map paths.
 
-            info = InfoExtractor.extract_info_from_path(self.kappa_path)
-            output_path = os.path.join(self.smoothed_dir, f"kappa_smoothed_s{info['seed']}_zs{info['redshift']}_*.fits")
+        Returns:
+            List[Path]: Sorted list of noisy map file paths.
 
-            for ngal in self.ngal_list:
-                for sl in self.sl_list:
-                    self._reset_params(sl=sl, ngal=ngal)
-                    if self.noiseless:
-                        output_file = output_path.replace('*', f"sl{sl}_noiseless")
-                    else:
-                        output_file = output_path.replace('*', f"sl{sl}_ngal{ngal}") 
-                    
-                    if not os.path.exists(output_file) or self.overwrite:
-                        self._check_kappa_existance()
-                        logging.info(f"Smoothing kappa map with {sl}"+r"$^\circ$")
-                        smoothed_map = hp.smoothing(self.kappa_noisy, sigma=sl / 60 * np.pi / 180)
-                        hp.write_map(output_file, smoothed_map.astype(np.float32))
+        Raises:
+            FileNotFoundError: If noisy directory or maps are not found.
+        """
+        if not self.noisy_dir.exists():
+            logging.error(f"Noisy maps directory not found: {self.noisy_dir}")
+            raise FileNotFoundError(f"Noisy maps directory not found: {self.noisy_dir}")
 
-    def _reset_variables(self):
-        self.kappa = None
-        self.kappa_noisy = None
+        noisy_map_paths = sorted(self.noisy_dir.glob("*.fits"))
+        if not noisy_map_paths:
+            logging.error(f"No noisy maps found in {self.noisy_dir}")
+            raise FileNotFoundError(f"No noisy maps found in {self.noisy_dir}")
 
-    def _reset_params(self, sl=2, ngal=None):
-        logging.info(f"Setting parameters: Smoothing Scale {sl}, Number of Galaxies {ngal}")
-        if ngal==0:
-            self.noiseless = True
-        else:
-            self.ng.ngal = ngal
-            self.noiseless = False
+        logging.info(f"Found {len(noisy_map_paths)} noisy maps in {self.noisy_dir}")
+        return noisy_map_paths
 
-    def _check_kappa_existance(self):
-        if self.kappa is None: self._load_kappa()
-        if self.kappa_noisy is None: 
-            info = InfoExtractor.extract_info_from_path(self.kappa_path)
-            self._add_noise(seed=info["seed"])
+    def smooth_kappa(self) -> None:
+        """
+        Smooths all kappa maps with specified smoothing scales and noise levels.
+        """
+        total_maps = len(self.kappa_map_paths + self.noisy_map_paths)
+        for idx, kappa_path in enumerate(self.kappa_map_paths + self.noisy_map_paths, start=1):
+            logging.info(f"Processing kappa map {idx}/{total_maps}: {kappa_path.name}")
+            info = InfoExtractor.extract_info_from_path(kappa_path)
+            for sl in self.sl_list:
+                self._process_single_map(kappa_path, info, sl)
 
-    def _load_kappa(self):
-        logging.info(f"Loading kappa map from {os.path.basename(self.kappa_path)}")
-        self.kappa = hp.read_map(self.kappa_path)
-        self.kappa = hp.reorder(self.kappa, n2r=True)
+    def _process_single_map(
+        self,
+        kappa_path: Path,
+        info: Dict[str, any],
+        sl: float,
+    ) -> None:
+        """
+        Processes a single kappa map with given parameters.
 
-    def _add_noise(self, seed=np.random.randint(0, 2**32)):
-        if self.noiseless: 
-            self.kappa_noisy = self.kappa.copy()
-        else:
-            self.kappa_noisy = self.ng.add_noise(input_map=self.kappa, seed=seed)
+        Args:
+            kappa_path (Path): Path to the kappa map file.
+            info (Dict[str, any]): Extracted information from the kappa path.
+            ngal (int): Number of galaxies for noise.
+            sl (float): Smoothing scale in arcminutes.
+        """
+        ngal = info["ngal"]
+        suffix = f"sl{sl}_noiseless" if (ngal == 0) else f"sl{sl}_ngal{ngal}"
+        output_filename = f"kappa_smoothed_s{info['seed']}_zs{info['redshift']}_{suffix}.fits"
+        output_file = self.smoothed_dir / output_filename
+
+        if output_file.exists() and not self.overwrite:
+            logging.debug(f"Output file exists and overwrite is False: {output_file}")
+            return
+
+        try:
+            kappa_map = self._load_kappa_map(kappa_path)
+            smoothed_map = self._smooth_map(kappa_map, sl)
+            hp.write_map(str(output_file), smoothed_map, dtype=np.float32, overwrite=True)
+            logging.info(f"Saved smoothed map to {output_file}")
+        except Exception as e:
+            logging.error(f"Failed to process {kappa_path.name} with ngal={ngal}, sl={sl}: {e}")
+
+    def _load_kappa_map(self, kappa_path: Path) -> np.ndarray:
+        """
+        Loads and reorders a kappa map.
+
+        Args:
+            kappa_path (Path): Path to the kappa map file.
+
+        Returns:
+            np.ndarray: Reordered kappa map.
+        """
+        logging.debug(f"Loading kappa map from {kappa_path.name}")
+        kappa = hp.read_map(str(kappa_path))
+        kappa_reordered = hp.reorder(kappa, n2r=True)
+        return kappa_reordered
+    
+    def _load_noisy_map(self, noisy_path: Path) -> np.ndarray:
+        """
+        Loads and reorders a noisy map.
+
+        Args:
+            noisy_path (Path): Path to the noisy map file.
+
+        Returns:
+            np.ndarray: Reordered noisy map.
+        """
+        logging.debug(f"Loading noisy map from {noisy_path.name}")
+        noisy = hp.read_map(str(noisy_path))
+        noisy_reordered = hp.reorder(noisy, n2r=True)
+
+        return noisy_reordered
+    def _smooth_map(self, kappa: np.ndarray, sl_arcmin: float) -> np.ndarray:
+        """
+        Smooths the kappa map with a Gaussian kernel.
+
+        Args:
+            kappa (np.ndarray): Kappa map to smooth.
+            sl_arcmin (float): Smoothing scale in arcminutes.
+
+        Returns:
+            np.ndarray: Smoothed kappa map.
+        """
+        sigma_rad = sl_arcmin * self.ARCMIN_TO_RAD
+        logging.debug(f"Smoothing map with sigma={sigma_rad} radians.")
+        smoothed = hp.smoothing(kappa, sigma=sigma_rad)
+        return smoothed
+    
+if __name__ == "__main__":
+    from src.utils import parse_arguments, load_config, filter_config, find_data_dirs
+    logging.basicConfig(level=logging.INFO)
+    args = parse_arguments()
+    config = load_config(args.config_file)
+
+    filtered_config_pp = filter_config(config, KappaSmoother)
+    ks = KappaSmoother(args.datadir, **filtered_config_pp, overwrite=True)
+    ks.smooth_kappa()
+
+    #data_dirs = find_data_dirs()
+
+    #for datadir in data_dirs:
+    #    ks = KappaSmoother(datadir, **filtered_config_pp, overwrite=args.overwrite)
+    #    ks.smooth_kappa()

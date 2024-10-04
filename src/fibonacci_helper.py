@@ -1,99 +1,168 @@
+# src/fibonacci_helper.py
 
 import math
+from typing import Tuple
+
 import numpy as np
 from scipy.ndimage import rotate
 
 class Rotation:
     @staticmethod
-    def M(axis, theta):
+    def rotation_matrix(axis: np.ndarray, theta: float) -> np.ndarray:
         """
-        Return the rotation matrix associated with counterclockwise rotation about
-        the given axis by theta radians.
+        Generate a rotation matrix for a counterclockwise rotation around a given axis by theta radians.
+
+        Args:
+            axis (np.ndarray): The axis to rotate around (3-dimensional).
+            theta (float): The rotation angle in radians.
+
+        Returns:
+            np.ndarray: A 3x3 rotation matrix.
         """
-        axis = np.asarray(axis)
-        axis = axis / math.sqrt(np.dot(axis, axis))
+        axis = axis / np.linalg.norm(axis)
         a = math.cos(theta / 2.0)
         b, c, d = -axis * math.sin(theta / 2.0)
-        aa, bb, cc, dd = a * a, b * b, c * c, d * d
-        bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
-        return np.array([[aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac)],
-                        [2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab)],
-                        [2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc]])
+        return np.array([
+            [a * a + b * b - c * c - d * d, 2 * (b * c + a * d),     2 * (b * d - a * c)],
+            [2 * (b * c - a * d),             a * a + c * c - b * b - d * d, 2 * (c * d + a * b)],
+            [2 * (b * d + a * c),             2 * (c * d - a * b),     a * a + d * d - b * b - c * c]
+        ])
     
 class SphericalConverter:
     @staticmethod
-    def spherical_to_cartesian(point, r=1):
-        theta, phi = point
-        x = r * np.sin(theta) * np.cos(phi)
-        y = r * np.sin(theta) * np.sin(phi)
+    def spherical_to_cartesian(theta: float, phi: float, r: float = 1.0) -> Tuple[float, float, float]:
+        """
+        Convert spherical coordinates to Cartesian coordinates.
+
+        Args:
+            theta (float): Polar angle in radians.
+            phi (float): Azimuthal angle in radians.
+            r (float, optional): Radius. Defaults to 1.0.
+
+        Returns:
+            Tuple[float, float, float]: Cartesian coordinates (x, y, z).
+        """
+        sin_theta = np.sin(theta)
+        x = r * sin_theta * np.cos(phi)
+        y = r * sin_theta * np.sin(phi)
         z = r * np.cos(theta)
         return x, y, z
 
     @staticmethod
-    def cartesian_to_spherical(x, y, z):
-        r = np.sqrt(x**2 + y**2 + z**2)
-        theta = np.arccos(z / r)
+    def cartesian_to_spherical(x: float, y: float, z: float) -> Tuple[float, float, float]:
+        """
+        Convert Cartesian coordinates to spherical coordinates.
+
+        Args:
+            x (float): X-coordinate.
+            y (float): Y-coordinate.
+            z (float): Z-coordinate.
+
+        Returns:
+            Tuple[float, float, float]: Spherical coordinates (r, theta, phi).
+        """
+        r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
+        theta = np.arccos(z / r) if r != 0 else 0.0
         phi = np.arctan2(y, x)
         return r, theta, phi
     
 class SphereRotator:
     @staticmethod
-    def rotation_matrix(theta, phi):
+    def rotation_matrix(theta: float, phi: float) -> np.ndarray:
         """
-        Generate a rotation matrix for rotating a point on the sphere by theta and phi.
+        Generate a composite rotation matrix for rotating a point on the sphere by theta and phi.
+
+        Args:
+            theta (float): Polar rotation angle in radians.
+            phi (float): Azimuthal rotation angle in radians.
+
+        Returns:
+            np.ndarray: A 3x3 composite rotation matrix.
         """
-        R_phi = Rotation.M([0, 0, 1], phi)
-        R_theta = Rotation.M(np.array([np.sin(phi), -np.cos(phi), 0]), np.pi/2 - theta)
-        return np.dot(R_theta, R_phi)
+        R_phi = Rotation.rotation_matrix(np.array([0, 0, 1]), phi)
+        # Rotate around the axis perpendicular to the new phi direction
+        axis_theta = np.array([np.sin(phi), -np.cos(phi), 0])
+        R_theta = Rotation.rotation_matrix(axis_theta, math.pi / 2 - theta)
+        return R_theta @ R_phi
+
 
     @staticmethod
-    def rotate_point(point, theta, phi):
+    def rotate_point(theta: float, phi: float, point: Tuple[float, float, float]) -> Tuple[float, float]:
         """
-        Rotate a point on the sphere by theta and phi.
+        Rotate a point on the sphere by theta and phi angles.
+
+        Args:
+            theta (float): Polar rotation angle in radians.
+            phi (float): Azimuthal rotation angle in radians.
+            point (Tuple[float, float, float]): Original point coordinates (theta, phi).
+
+        Returns:
+            Tuple[float, float]: Rotated point coordinates (theta, phi).
         """
-        x, y, z = SphericalConverter.spherical_to_cartesian(point)
-        x_rot, y_rot, z_rot = np.dot(SphereRotator.rotation_matrix(theta, phi), np.array([x, y, z]))
-        return SphericalConverter.cartesian_to_spherical(x_rot, y_rot, z_rot)[1:]
+        x, y, z = SphericalConverter.spherical_to_cartesian(*point)
+        rotation_mat = SphereRotator.rotation_matrix(theta, phi)
+        x_rot, y_rot, z_rot = rotation_mat @ np.array([x, y, z])
+        _, theta_rot, phi_rot = SphericalConverter.cartesian_to_spherical(x_rot, y_rot, z_rot)
+        return theta_rot, phi_rot
 
 class FibonacciHelper:
     @staticmethod
-    def fibonacci_grid_on_sphere(N):
+    def fibonacci_grid_on_sphere(N: int) -> np.ndarray:
         """
-        Generates a grid of N points distributed over the surface of a sphere using 
-        the Fibonacci lattice method.
+        Generate a Fibonacci lattice grid of N points distributed over the surface of a sphere.
+
+        Args:
+            N (int): Number of points.
+
+        Returns:
+            np.ndarray: An Nx2 array of spherical coordinates (theta, phi).
         """
-        points = np.zeros((N, 2))
-        phi = (np.sqrt(5) + 1) / 2  # Golden ratio
-        golden_angle = 2 * np.pi / phi
-        
-        for i in range(N):
-            # Calculate spherical coordinates using the Fibonacci grid formula
-            theta = np.arccos(1 - 2 * (i + 0.5) / N)
-            phi_i = (golden_angle * i) % (2 * np.pi)
-            points[i] = [theta, phi_i]
-        
-        return points
+        indices = np.arange(0, N, dtype=float) + 0.5
+        phi = np.pi * (3.0 - math.sqrt(5.0))  # Golden angle in radians
+        theta = np.arccos(1 - 2 * indices / N)
+        phi_i = phi * indices
+        phi_i = np.mod(phi_i, 2 * np.pi)  # Ensure phi_i is within [0, 2π)
+        return np.column_stack((theta, phi_i))
 
     @staticmethod
-    def get_patch_pixels(image, side_length):
+    def get_patch_pixels(image: np.ndarray, side_length: int) -> np.ndarray:
         """
-        Extracts a square patch of pixels from the center of an image. The patch is 
-        rotated by 45 degrees before extraction.
+        Extract a square patch of pixels from the center of an image after rotating it by 45 degrees.
+
+        Args:
+            image (np.ndarray): Input image array.
+            side_length (int): Length of the square patch.
+
+        Returns:
+            np.ndarray: Extracted patch of pixels.
         """
         # Rotate the image by 45 degrees without changing the shape
         rotated_image = rotate(image, 45, reshape=False)
 
-        # Determine the center of the rotated image
-        x_center, y_center = rotated_image.shape[1] // 2, rotated_image.shape[0] // 2
+        center_y, center_x = np.array(rotated_image.shape) // 2
         half_side = side_length // 2
 
-        # Calculate the bounds of the patch
-        x_start = max(x_center - half_side, 0)
-        x_end = min(x_center + half_side, rotated_image.shape[1])
-        y_start = max(y_center - half_side, 0)
-        y_end = min(y_center + half_side, rotated_image.shape[0])
+        y_start = max(center_y - half_side, 0)
+        y_end = y_start + side_length
+        x_start = max(center_x - half_side, 0)
+        x_end = x_start + side_length
 
-        # Extract the patch
-        patch_pixels = rotated_image[y_start:y_end, x_start:x_end]
-        
-        return patch_pixels
+        # Ensure the patch does not exceed image boundaries
+        y_end = min(y_end, rotated_image.shape[0])
+        x_end = min(x_end, rotated_image.shape[1])
+
+        patch = rotated_image[y_start:y_end, x_start:x_end]
+
+        # If the patch is smaller than desired due to image boundaries, pad it
+        if patch.shape[0] != side_length or patch.shape[1] != side_length:
+            patch = np.pad(
+                patch,
+                (
+                    (0, max(side_length - patch.shape[0], 0)),
+                    (0, max(side_length - patch.shape[1], 0))
+                ),
+                mode='constant',
+                constant_values=0
+            )
+
+        return patch

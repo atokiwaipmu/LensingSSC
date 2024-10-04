@@ -8,7 +8,7 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
 
 class StatsPlotter:
-    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 2.0, 3.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
+    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 2.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
         self.data_dir = data_dir
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
@@ -31,7 +31,7 @@ class StatsPlotter:
         self.nu = (self.bins[1:] + self.bins[:-1]) / 2
 
     def plot(self):
-        self.plot_stats(is_patch=False)
+        #self.plot_stats(is_patch=False)
         self.plot_stats(is_patch=True)
 
     def plot_stats(self, is_patch=False):
@@ -58,7 +58,7 @@ class StatsPlotter:
 
     def _generate_suffix(self, is_patch=False):
         suffix = f"oa{self.oa}_" if is_patch else ""
-        suffix += f"sl{self.sl}_noiseless"
+        suffix += f"noiseless_sl{self.sl}"
         if self.ngal != 0:
             suffix = suffix.replace("noiseless", f"ngal{self.ngal}")
         return suffix
@@ -185,8 +185,9 @@ class StatsPlotter:
 
 
 if __name__ == "__main__":
-    sl = 2
-    ngal = 0
-
-    plotter = StatsPlotter(sl, ngal)
-    plotter.plot()
+    sl_list = [2, 5, 8, 10]
+    ngal_list = [0, 7, 15, 30, 50]
+    for sl in sl_list:
+        for ngal in ngal_list:
+            plotter = StatsPlotter(sl, ngal)
+            plotter.plot()

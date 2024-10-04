@@ -1,76 +1,195 @@
+# src/noise_generator.py
 
-
-import logging
 import numpy as np
 import healpy as hp
+import logging
 from typing import Optional
+from numpy.random import Generator, PCG64
 
 class NoiseGenerator:
     """
-    Generates noise maps for simulating galaxy surveys.
+    Generates noise maps for simulating galaxy surveys using the HEALPix pixelization scheme.
     """
 
-    def __init__(self, ngal: int = 30, nside: int = 8192, epsilon: float = 0.3) -> None:
+    def __init__(self, ngal: int = 30, nside: int = 8192, epsilon: float = 0.3, rng: Optional[Generator] = None) -> None:
         """
         Initializes the NoiseGenerator with configuration parameters.
 
         Args:
-            ngal: Number of galaxies per square arcmin.
-            nside: HEALPix nside parameter for the map.
-            epsilon: Noise level parameter.
+            ngal (int): Number of galaxies per square arcminute.
+            nside (int): HEALPix nside parameter determining the map resolution.
+            epsilon (float): Intrinsic noise level parameter.
+            rng (Optional[Generator]): Instance-specific random number generator.
         """
         self.ngal = ngal
         self.nside = nside
         self.epsilon = epsilon
+        self.noise_map: Optional[np.ndarray] = None
 
+        self._validate_parameters()
         self._calculate_properties()
-        logging.info(f"NoiseGenerator initialized: ngal={self.ngal}, nside={self.nside}, epsilon={self.epsilon}")
 
-    def _calculate_properties(self):
-        """Calculates internal properties based on configuration."""
-        self.pixarea = hp.nside2pixarea(self.nside, degrees=True) * 60 ** 2  # arcmin^2
-        self.npix = hp.nside2npix(self.nside)
-        self.sigma = self.epsilon / np.sqrt(self.ngal * self.pixarea)
-        self.noise_map = None
+        # Initialize an instance-specific random number generator
+        self.rng = rng if rng is not None else Generator(PCG64())
+        logging.info(
+            f"NoiseGenerator initialized with ngal={self.ngal}, nside={self.nside}, epsilon={self.epsilon}"
+        )
 
-    def generate_noise(self, seed: Optional[int] = 0) -> np.ndarray:
+    def _validate_parameters(self) -> None:
         """
-        Generates a noise map with the specified seed.
+        Validates the initialization parameters.
+        """
+        if not isinstance(self.ngal, int) or self.ngal < 0:
+            raise ValueError(f"Invalid ngal value: {self.ngal}. It must be a non-negative integer.")
+        if not isinstance(self.nside, int) or not hp.isnsideok(self.nside):
+            raise ValueError(f"Invalid nside value: {self.nside}. It must be a power of 2.")
+        if not isinstance(self.epsilon, (float, int)) or self.epsilon <= 0:
+            raise ValueError(f"Invalid epsilon value: {self.epsilon}. It must be a positive number.")
+
+    def _calculate_properties(self) -> None:
+        """
+        Calculates internal properties based on initialization parameters.
+        """
+        try:
+            self.pixarea_arcmin2 = hp.nside2pixarea(self.nside, degrees=True) * 60**2  # Convert deg² to arcmin²
+            self.npix = hp.nside2npix(self.nside)
+            self.sigma = self.epsilon / np.sqrt(self.ngal * self.pixarea_arcmin2)
+            logging.debug(
+                f"Calculated properties: pixarea_arcmin2={self.pixarea_arcmin2}, "
+                f"npix={self.npix}, sigma={self.sigma}"
+            )
+        except Exception as e:
+            logging.error(f"Error in calculating properties: {e}")
+            raise
+
+    def generate_noise(self, seed: Optional[int] = None) -> np.ndarray:
+        """
+        Generates a Gaussian noise map based on the specified seed.
 
         Args:
-            seed: Random seed for noise generation (defaults to 0).
+            seed (Optional[int]): Random seed for noise generation. If None, randomness is not fixed.
 
         Returns:
-            The generated noise map.
+            np.ndarray: The generated noise map.
         """
-        if self.noise_map is None:
-            logging.info(f"Generating noise with seed {seed}")
-            np.random.seed(seed)
-            self.noise_map = np.random.normal(loc=0, scale=self.sigma, size=(self.npix,))
+        if self.noise_map is not None:
+            logging.debug("Returning existing noise map.")
+            return self.noise_map
+
+        logging.info(f"Generating noise map with seed={seed}")
+        if seed is not None:
+            self.rng = Generator(PCG64(seed))
+            logging.debug(f"Random generator seeded with {seed}")
+
+        try:
+            self.noise_map = self.rng.normal(loc=0.0, scale=self.sigma, size=self.npix)
+            logging.debug("Noise map generated successfully.")
+        except Exception as e:
+            logging.error(f"Error in generating noise map: {e}")
+            raise
+
         return self.noise_map
 
-    def save_noise(self, output_path: str, seed: Optional[int] = 0) -> None:
+    def save_noise(self, output_path: str, seed: Optional[int] = None) -> None:
         """
-        Saves the generated noise map to the specified path.
+        Saves the generated noise map to a FITS file at the specified path.
 
         Args:
-            output_path: Path to save the noise map.
+            output_path (str): File path to save the noise map.
+            seed (Optional[int]): Random seed for noise generation if noise map is not already generated.
         """
         if self.noise_map is None:
-            self.noise_map = self.generate_noise(seed=seed)
-        hp.write_map(output_path, self.noise_map)
-        logging.info(f"Noise map saved to: {output_path}")
+            self.generate_noise(seed=seed)
 
-    def add_noise(self, input_map: np.ndarray, seed: Optional[int] = 0) -> np.ndarray:
+        try:
+            hp.write_map(output_path, self.noise_map, overwrite=True)
+            logging.info(f"Noise map saved to '{output_path}'.")
+        except Exception as e:
+            logging.error(f"Failed to save noise map to '{output_path}': {e}")
+            raise
+
+    def add_noise(self, input_map: np.ndarray, seed: Optional[int] = None) -> np.ndarray:
         """
         Adds the generated noise map to the input map.
 
         Args:
-            input_map: The input map to add noise to.
+            input_map (np.ndarray): The input map to which noise will be added.
+            seed (Optional[int]): Random seed for noise generation if noise map is not already generated.
 
         Returns:
-            The input map with noise added.
+            np.ndarray: The input map with noise added.
         """
-        if self.noise_map is None:
-            self.noise_map = self.generate_noise(seed=seed)
-        return input_map + self.noise_map
+        if not isinstance(input_map, np.ndarray):
+            logging.error("Input map must be a NumPy array.")
+            raise TypeError("input_map must be a NumPy array.")
+
+        if input_map.size != self.npix:
+            logging.error(
+                f"Input map size {input_map.size} does not match expected size {self.npix}."
+            )
+            raise ValueError(f"Input map size {input_map.size} does not match expected size {self.npix}.")
+
+        noise = self.generate_noise(seed=seed)
+        noisy_map = input_map + noise
+        logging.debug("Noise added to the input map successfully.")
+        return noisy_map
+
+    def reset_noise(self) -> None:
+        """
+        Resets the noise map, allowing for regeneration.
+        """
+        self.noise_map = None
+        logging.info("Noise map has been reset.")
+
+    def set_ngal(self, ngal: int) -> None:
+        """
+        Sets the number of galaxies per square arcminute.
+
+        Args:
+            ngal (int): Number of galaxies per square arcminute.
+        """
+        self.ngal = ngal
+        self.sigma = self.epsilon / np.sqrt(self.ngal * self.pixarea_arcmin2)
+        logging.info(f"ngal set to {self.ngal}.")   
+
+ 
+
+if __name__ == "__main__":
+    from src.utils import parse_arguments, load_config, filter_config
+    from src.info_extractor import InfoExtractor
+    from pathlib import Path
+
+    logging.basicConfig(level=logging.DEBUG)
+    args = parse_arguments()
+    config = load_config(args.config_file)
+
+    kappa_dir = Path(args.datadir) / "kappa"
+    noisy_dir = Path(args.datadir) / "noisy_maps"
+    noisy_dir.mkdir(exist_ok=True, parents=True)
+
+    kappa_map_paths = sorted(kappa_dir.glob("*.fits"))
+    ng_config = filter_config(config, NoiseGenerator)
+    noise_gen = NoiseGenerator(**ng_config)
+
+    for kappa_map_path in kappa_map_paths:
+        info = InfoExtractor.extract_info_from_path(kappa_map_path)
+        kappa_map = hp.read_map(str(kappa_map_path))
+
+        for ngal in config.get("ngal_list", []):
+            if ngal == 0:
+                logging.info(f"Noiseless map for {kappa_map_path.name}. Skipping.")
+                continue
+
+            noisy_path = noisy_dir / f"{kappa_map_path.stem}_ngal{ngal}.fits"
+
+            if noisy_path.exists() and not args.overwrite:
+                logging.info(f"Noisy map {noisy_path.name} already exists. Skipping.")
+                continue
+
+            noise_gen.set_ngal(ngal)
+            tmp_seed = int(info["seed"] + ngal + info["redshift"] * 100)
+            noisy_map = noise_gen.add_noise(kappa_map, seed=tmp_seed)
+
+            hp.write_map(str(noisy_path), noisy_map, overwrite=args.overwrite, dtype=np.float32)
+            logging.info(f"Noisy map saved to {noisy_path.name}")
+            noise_gen.reset_noise()

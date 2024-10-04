@@ -1,35 +1,31 @@
+# src/job_generator.py
 
 import subprocess
+from dataclasses import dataclass, field
 from src.info_extractor import InfoExtractor
 
+@dataclass
 class JobGenerator:
-    def __init__(self, datadir, 
-                 config_file="/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_default.yaml", 
-                 workdir="/lustre/work/akira.tokiwa/Projects/LensingSSC/", 
-                 user="akira.tokiwa",
-                 env_name="lssc",
-                 queue="mini",
-                 ppn=48):
-        info = InfoExtractor.extract_info_from_path(datadir)
-        self.datadir = datadir
-        self.config_file = config_file
+    datadir: str
+    config_file: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_default.yaml"
+    workdir: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/"
+    user: str = "akira.tokiwa"
+    env_name: str = "lssc"
+    queue: str = "mini"
+    ppn: int = 48
+    mail: str = field(init=False)
+    seed: str = field(init=False)
+    box_type: str = field(init=False)
+
+    def __post_init__(self):
+        info = InfoExtractor.extract_info_from_path(self.datadir)
         self.seed = info["seed"]
         self.box_type = info["box_type"]
-
-        self.workdir = workdir
-        self.user = user
-        self.mail = f"{user}.ipmu.jp"
-        self.env_name = env_name
-        self.queue = queue
-        self.ppn = ppn
+        self.mail = f"{self.user}@ipmu.jp"
 
     def gen_script(self, task, job_name, option=None, if_omp=False, if_submit=False):
-        if if_omp:
-            omp_export = "export OMP_NUM_THREADS=48"
-        else:
-            omp_export = ""
-
-        script_template = f"""#!/bin/bash
+        omp_export = f"export OMP_NUM_THREADS={self.ppn}" if if_omp else ""
+        script_content = f"""#!/bin/bash
 #PBS -N {job_name}_{self.box_type}_s{self.seed}
 #PBS -o {self.datadir}/log/{job_name}_{self.box_type}_s{self.seed}.out
 #PBS -e {self.datadir}/log/{job_name}_{self.box_type}_s{self.seed}.err
@@ -47,11 +43,11 @@ cd {self.workdir}
 
 DATA_DIR={self.datadir}
 CONFIG_FILE={self.config_file}
-python -m {task} $DATA_DIR $CONFIG_FILE {option if option else ""}
+python -m {task} $DATA_DIR $CONFIG_FILE {option or ""}
 """
-
-        with open(f"{self.datadir}/{job_name}.sh", "w") as file:
-            file.write(script_template)
+        script_path = f"{self.datadir}/{job_name}.sh"
+        with open(script_path, "w") as file:
+            file.write(script_content)
 
         if if_submit:
-            subprocess.run(["qsub", f"{self.datadir}/{job_name}.sh"])
+            subprocess.run(["qsub", script_path])
