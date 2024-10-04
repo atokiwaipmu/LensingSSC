@@ -166,6 +166,7 @@ job/log
 references/
 results/
 src/LEGACY/
-src/extra
+src/extra/
 img/comparison
-img/fullsky
+img/fullsky/
+plot/maps/

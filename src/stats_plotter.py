@@ -6,6 +6,8 @@ import logging
 from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
+from src.info_extractor import InfoExtractor
+
 
 class StatsPlotter:
     def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 2.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
@@ -183,6 +185,79 @@ class StatsPlotter:
         axes_legend.legend(*axes_ell[0].get_legend_handles_labels(), loc='center', fontsize=12)
         axes_legend.axis('off')
 
+def plot_kappa(files, datadir):
+    zs_order = [0.5, 1, 2]
+    noise_order = np.array(["noiseless", "ngal50", "ngal30", "ngal15", "ngal7"])
+    smoothing_order = np.array([None, 2, 5, 8, 10])
+
+    # 3 redshift x (4 smoothing scale x 5 noise scale) panels
+    fig = plt.figure(figsize=(15, 5))
+    gs_master = GridSpec(1, 3, figure=fig, wspace=0.1)
+    gs_zs05 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[0], wspace=0.1, hspace=0)
+    gs_zs1 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[1], wspace=0.1, hspace=0)
+    gs_zs2 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[2], wspace=0.1, hspace=0)
+
+    for file in files:
+        data = np.load(file, mmap_mode="r")
+        info = InfoExtractor.extract_info_from_path(file)
+        zs = info["redshift"]
+        sl = info["sl"]
+        sl_idx = np.where(smoothing_order == sl)[0][0]
+        ngal = info["ngal"]
+        noise = f"ngal{ngal}" if ngal != 0 else "noiseless"
+        noise_idx = np.where(noise_order == noise)[0][0]
+
+        if zs == 0.5:
+            gs = gs_zs05
+        elif zs == 1:
+            gs = gs_zs1
+        else:
+            gs = gs_zs2
+
+        ax = fig.add_subplot(gs[sl_idx, noise_idx])
+        ax.imshow(data[0], vmin=-0.024, vmax=0.024)
+        #ax.set_title(f"{zs}, {sl}, {ngal}", fontsize=8)
+        ax.axis("off")
+
+    output_path = os.path.join(datadir, "img", "patches.png")
+    fig.savefig(output_path, bbox_inches="tight")
+
+    plt.close()
+
+def plot_corr(fname, corr_tiled, corr_bigbox, title, title_tiled, title_bigbox, labels, vmin=-0.3, vmax=0.3):    
+    nbin = corr_bigbox.shape[0] // len(labels)
+    tick_positions = [nbin/2 + nbin * i for i in range(len(labels))]
+
+    fig = plt.figure(figsize=(10, 4))
+    gs_master = GridSpec(nrows=2, ncols=1, height_ratios=[1, 9])
+    gs_plot = GridSpecFromSubplotSpec(1, 3, subplot_spec=gs_master[1], wspace=0.2)
+    ax = [fig.add_subplot(gs_plot[i]) for i in range(3)]
+
+    cax = ax[0].imshow(corr_tiled, cmap='bwr', vmin=-1, vmax=1)
+    fig.colorbar(cax, ax=ax[0], shrink=0.6)
+    ax[0].set_title(title_tiled, fontsize=10)
+
+    cax = ax[1].imshow(corr_bigbox, cmap='bwr', vmin=-1, vmax=1)
+    fig.colorbar(cax, ax=ax[1], shrink=0.6)
+    ax[1].set_title(title_bigbox, fontsize=10)
+
+    cax = ax[2].imshow(corr_bigbox - corr_tiled, cmap='bwr', vmin=vmin, vmax=vmax)
+    fig.colorbar(cax, ax=ax[2], shrink=0.6)
+    ax[2].set_title("BigBox - Tiled Correlation", fontsize=10)
+
+    for axes in ax:
+        axes.set_xticks(tick_positions, labels, fontsize=8)
+        axes.set_yticks(tick_positions, labels, fontsize=8, rotation=90, va='center')
+        axes.invert_yaxis()
+
+    ax_title = fig.add_subplot(gs_master[0])
+    ax_title.text(0.5, 0.5, title, fontsize=12, ha='center', va='center')
+    ax_title.axis('off')
+
+    fig.savefig(fname, bbox_inches='tight')
+    print(f"Saved: {fname}")
+    plt.show()
+    plt.close(fig)
 
 if __name__ == "__main__":
     sl_list = [2, 5, 8, 10]
@@ -191,3 +266,30 @@ if __name__ == "__main__":
         for ngal in ngal_list:
             plotter = StatsPlotter(sl, ngal)
             plotter.plot()
+
+    """sample
+    data_tiled_paths = glob.glob("/lustre/work/akira.tokiwa/Projects/LensingSSC/output/patch_stats_tiled*.npy")
+    for data_tiled_path in data_tiled_paths:
+        data_bigbox_path = data_tiled_path.replace("tiled", "bigbox")
+
+        data_tiled = np.load(data_tiled_path, allow_pickle=True).item()
+        data_bigbox = np.load(data_bigbox_path, allow_pickle=True).item()
+        info = InfoExtractor.extract_info_from_path(data_tiled_path)
+        sl = info["sl"]
+        oa = info["oa"]
+        ngal = info["ngal"]
+        noise = f"ngal{ngal}" if ngal != 0 else "noiseless"
+
+        for zs in [0.5, 1.0, 2.0]:
+            fname = os.path.join("/lustre/work/akira.tokiwa/Projects/LensingSSC/plot/corr", f"corr_zs{zs}_oa{oa}_{noise}_sl{sl}.png")
+            title = f"Correlation Matrix, Opening Angle: {oa}"+r"$^\circ$,"+f" Scale Angle: {sl}"+r"''"+f", Redshift: {zs}"
+            title_tiled = f"Tiled, 20 realizations"
+            title_bigbox = f"BigBox, 11 realizations"
+            labels = [r'$B_{\ell}^\mathrm{sq}$', r'$C^{\kappa\kappa}_{\ell}$', "PDF", "Peaks", "Minima"]
+
+            corr_tiled = data_tiled[zs]["corr"]
+            corr_bigbox = data_bigbox[zs]["corr"]
+
+            plot_corr(fname, corr_tiled, corr_bigbox, title, title_tiled, title_bigbox, labels)
+        
+    """
