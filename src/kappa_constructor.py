@@ -10,6 +10,8 @@ from typing import Tuple
 from astropy import constants as const, units as u
 from astropy.cosmology import FlatLambdaCDM, z_at_value
 
+from src.info_extractor import InfoExtractor
+
 
 class SheetMapper:
     """Handles sheet mapping operations for cosmological data visualization."""
@@ -60,6 +62,7 @@ class WeakLensingHelper:
 class KappaConstructor:
     def __init__(self, datadir, zs_list=None, overwrite=False):
         self.datadir = Path(datadir)
+        self.seed = InfoExtractor.extract_info_from_path(self.datadir)['seed']
         self.zs_list = zs_list or [0.5, 1.0, 1.5, 2.0, 2.5]
         self.overwrite = overwrite
         self.cosmo = FlatLambdaCDM(H0=67.74, Om0=0.309)
@@ -75,7 +78,7 @@ class KappaConstructor:
     def compute_kappa(self):
         for zs in self.zs_list:
             logging.info(f"Starting computation for zs={zs}.")
-            kappa_file = self.outputdir / f"kappa_zs{zs}.fits"
+            kappa_file = self.outputdir / f"kappa_zs{zs}_s{self.seed}.fits"
             if kappa_file.exists() and not self.overwrite:
                 logging.info(f"Kappa for zs={zs} exists. Skipping.")
                 continue
@@ -90,14 +93,14 @@ class KappaConstructor:
         process_partial = partial(self._process_delta_sheet, zs=zs, mapper=mapper)
         
         # Use multiprocessing Pool to parallelize the work
-        with mp.Pool(processes=mp.cpu_count()) as pool:
+        with mp.Pool(processes=20) as pool:
             results = pool.map(process_partial, self.sheet_files)
 
         return np.sum(results, axis=0)
 
-    def _process_delta_sheet(self, data_path: str, zs: float, mapper: SheetMapper) -> np.ndarray:
+    def _process_delta_sheet(self, data_path: Path, zs: float, mapper: SheetMapper) -> np.ndarray:
         """Process a single delta sheet and update the mapper."""
-        i = int(data_path.split("-")[-1].split(".")[0])
+        i = int(data_path.stem.split("-")[-1])
         logging.info(f"Processing delta sheet index {i}")
         delta = hp.read_map(data_path).astype('float32')
         chi1, chi2 = WeakLensingHelper.index_to_chi(i, self.cosmo)
@@ -111,3 +114,15 @@ class KappaConstructor:
             zs
         )
         return mapper.maps["kappa"]
+    
+if __name__ == "__main__":
+    from src.utils import parse_arguments, load_config, filter_config, setup_logging
+    from pathlib import Path
+
+    setup_logging()
+    args = parse_arguments()
+    config = load_config(args.config_file)
+
+    kc_config = filter_config(config, KappaConstructor)
+    kc = KappaConstructor(args.datadir, **kc_config)
+    kc.compute_kappa()
