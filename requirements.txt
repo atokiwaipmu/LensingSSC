@@ -1,0 +1,10 @@
+numpy
+pyyaml
+healpy
+matplotlib
+classy
+lenstools
+astropy
+nbodykit
+pandas
+scipy

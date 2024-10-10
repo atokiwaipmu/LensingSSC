@@ -59,9 +59,11 @@ def process_datadir(datadir: Path, lmax: int = 3000, overwrite: bool = False) ->
     clkk_dir = datadir / "cls"
     clkk_dir.mkdir(exist_ok=True, parents=True)
 
-    all_maps = kappa_paths + noisy_paths
-    for kappa_path in all_maps:
+    for kappa_path in kappa_paths:
         process_map(kappa_path, clkk_dir, lmax, overwrite)
+
+    #for noisy_path in noisy_paths:
+    #    process_map(noisy_path, clkk_dir, lmax, overwrite)
 
 if __name__ == "__main__":
     from src.utils import parse_arguments, load_config, setup_logging

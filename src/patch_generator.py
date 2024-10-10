@@ -158,8 +158,8 @@ if __name__ == "__main__":
     config = load_config(args.config_file)
     filtered_config = filter_config(config, PatchProcessor)
     pp = PatchProcessor(**filtered_config)
-    #pg = PatchGenerator(args.datadir, pp, is_snr=False, overwrite=args.overwrite)
-    #pg.run()
+    pg = PatchGenerator(args.datadir, pp, is_snr=False, overwrite=args.overwrite)
+    pg.run()
 
     ps = PatchSmoother(args.datadir, pp, sl_list=[2, 5, 8, 10], overwrite=args.overwrite, num_workers=20)
     ps.run()

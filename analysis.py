@@ -13,10 +13,12 @@ from src.fullsky_analyser import FullSkyAnalyser
 class KappaAnalyser:
     def __init__(self, datadir,
                  pa: PatchAnalyser,
-                 fsa: FullSkyAnalyser):
+                 fsa: FullSkyAnalyser,
+                 overwrite=False):
         self.datadir = datadir
         self.pa = pa
         self.fsa = fsa
+        self.overwrite = overwrite
         
         self._prepare_output_path()
         self._check_preprocessed_data()
@@ -55,13 +57,12 @@ class KappaAnalyser:
                 fname = os.path.basename(patch_snr_path).replace('patches', 'analysis')
                 output_path = os.path.join(self.analysis_patch_dir, fname)
 
-                if not os.path.exists(output_path):
+                if not os.path.exists(output_path) or self.overwrite:
                     if tmp_kappa_patches is None:
                         tmp_kappa_patches = np.load(patch_kappa_path)
 
                     logging.info(f"Analysing patch for {fname}")
                     snr_patches = np.load(patch_snr_path)
-                    snr_patches = snr_patches / np.std(snr_patches)
                     data = self.pa.process_patches(tmp_kappa_patches, snr_patches)
                     np.save(output_path, data)
                 else:
@@ -109,5 +110,5 @@ if __name__ == "__main__":
     filtered_config_fsa = filter_config(config, FullSkyAnalyser)
     fsa = FullSkyAnalyser(**filtered_config_fsa)
 
-    ka = KappaAnalyser(args.datadir, pa, fsa)
+    ka = KappaAnalyser(args.datadir, pa, fsa, overwrite=args.overwrite)
     ka.analyse()

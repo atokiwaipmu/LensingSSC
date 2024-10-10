@@ -1,4 +1,5 @@
 
+from ast import arg
 import os
 import numpy as np
 import healpy as hp
@@ -8,11 +9,12 @@ from src.utils import find_data_dirs, separate_dirs
 from src.info_extractor import InfoExtractor
 
 class StatsMerger:
-    def __init__(self, data_dirs, sl, ngal, oa=10, zs_list=[0.5, 1.0, 2.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output"):
+    def __init__(self, data_dirs, sl, ngal, oa=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", overwrite=False):
         self.data_dirs = data_dirs
         self.tiled_dirs, self.bigbox_dirs = separate_dirs(data_dirs)
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
+        self.overwrite = overwrite
 
         self.sl = sl
         self.ngal = ngal
@@ -33,9 +35,12 @@ class StatsMerger:
 
     def _run_and_save(self, is_patch=False, box_type='tiled'):
         suffix = self._generate_suffix(is_patch)
-        stats = self.merge_stats(is_patch, box_type)
         fname = f"fullsky_stats_{box_type}_{suffix}.npy" if not is_patch else f"patch_stats_{box_type}_{suffix}.npy"
         save_path = os.path.join(self.save_dir, fname)
+        if os.path.exists(os.path.join(self.save_dir, fname)) and not self.overwrite:
+            print(f"Stats file {os.path.basename(save_path)} already exists, skipping")
+            return
+        stats = self.merge_stats(is_patch, box_type)
         np.save(save_path, stats)
         print(f"Saved stats to {os.path.basename(save_path)}")
 
@@ -108,6 +113,11 @@ class EllHelper:
         return bispec * ell**4 / (2*np.pi)**2
 
 if __name__ == "__main__":
+    import argparse
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--overwrite", action="store_true")
+    args = argparser.parse_args()
+
     logging.basicConfig(level=logging.INFO)
     data_dirs = find_data_dirs()
     sl_list = [2, 5, 8, 10]
@@ -115,7 +125,7 @@ if __name__ == "__main__":
     for sl in sl_list:
         for ngal in ngal_list:
             print(f"Start merging stats for ngal={ngal}, sl={sl}")
-            stats_merger = StatsMerger(data_dirs, sl, ngal)
+            stats_merger = StatsMerger(data_dirs, sl, ngal, overwrite=args.overwrite)
             try:
                 stats_merger.run()
             except Exception as e:

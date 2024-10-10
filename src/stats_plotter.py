@@ -10,7 +10,7 @@ from src.info_extractor import InfoExtractor
 
 
 class StatsPlotter:
-    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 2.0], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
+    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 1.5, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
         self.data_dir = data_dir
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
@@ -19,7 +19,7 @@ class StatsPlotter:
         self.ngal = ngal
         self.oa = oa
         self.zs_list = zs_list
-        self.colors = {zs: color for zs, color in zip(zs_list, ["tab:blue", "tab:orange", "tab:green", "tab:red"])}
+        self.colors = {zs: color for zs, color in zip(zs_list, ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"])}
         self.labels = [r'$B_{\ell}^\mathrm{sq}$', 
           r'$C^{\kappa\kappa}_{\ell}$', 
           "PDF",
@@ -186,16 +186,18 @@ class StatsPlotter:
         axes_legend.axis('off')
 
 def plot_kappa(files, datadir):
-    zs_order = [0.5, 1, 2]
+    zs_order = [0.5, 1, 1.5, 2, 2.5]
     noise_order = np.array(["noiseless", "ngal50", "ngal30", "ngal15", "ngal7"])
     smoothing_order = np.array([None, 2, 5, 8, 10])
 
-    # 3 redshift x (4 smoothing scale x 5 noise scale) panels
-    fig = plt.figure(figsize=(15, 5))
-    gs_master = GridSpec(1, 3, figure=fig, wspace=0.1)
+    # 5 redshift x (4 smoothing scale x 5 noise scale) panels
+    fig = plt.figure(figsize=(5, 25))
+    gs_master = GridSpec(5, 1, figure=fig, wspace=0.1)
     gs_zs05 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[0], wspace=0.1, hspace=0)
     gs_zs1 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[1], wspace=0.1, hspace=0)
-    gs_zs2 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[2], wspace=0.1, hspace=0)
+    gs_zs15 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[2], wspace=0.1, hspace=0)
+    gs_zs2 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[3], wspace=0.1, hspace=0)
+    gs_zs25 = GridSpecFromSubplotSpec(5, 5, subplot_spec=gs_master[4], wspace=0.1, hspace=0)
 
     for file in files:
         data = np.load(file, mmap_mode="r")
@@ -211,8 +213,12 @@ def plot_kappa(files, datadir):
             gs = gs_zs05
         elif zs == 1:
             gs = gs_zs1
-        else:
+        elif zs == 1.5:
+            gs = gs_zs15
+        elif zs == 2:
             gs = gs_zs2
+        else:
+            gs = gs_zs25
 
         ax = fig.add_subplot(gs[sl_idx, noise_idx])
         ax.imshow(data[0], vmin=-0.024, vmax=0.024)
@@ -260,12 +266,23 @@ def plot_corr(fname, corr_tiled, corr_bigbox, title, title_tiled, title_bigbox, 
     plt.close(fig)
 
 if __name__ == "__main__":
+    
     sl_list = [2, 5, 8, 10]
     ngal_list = [0, 7, 15, 30, 50]
     for sl in sl_list:
         for ngal in ngal_list:
             plotter = StatsPlotter(sl, ngal)
             plotter.plot()
+    """
+    from src.utils import find_data_dirs
+    import glob
+    data_dirs = find_data_dirs()
+    for datadir in data_dirs:
+        patch_snr = glob.glob(os.path.join(datadir, "patch_snr", "*.npy"))
+        patch_kappa = glob.glob(os.path.join(datadir, "patch_kappa", "*.npy"))
+        files = patch_snr + patch_kappa
+        plot_kappa(files, datadir)
+    """
 
     """sample
     data_tiled_paths = glob.glob("/lustre/work/akira.tokiwa/Projects/LensingSSC/output/patch_stats_tiled*.npy")

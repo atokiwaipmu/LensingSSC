@@ -1,4 +1,5 @@
 
+from logging import config
 import os
 import yaml
 import argparse
@@ -82,7 +83,7 @@ def calc_cl(z_s,
 
     return ell, clkk, clkk_lin
 
-def main(savedir=None, lmax=3000, zs_list=[0.5, 1.0, 2.0, 3.0], overwrite=False):
+def main(savedir=None, lmax=3000, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], overwrite=False):
     """
     Calculate the non-linear and linear Clkk values for the specified redshifts.
 
@@ -105,28 +106,16 @@ def main(savedir=None, lmax=3000, zs_list=[0.5, 1.0, 2.0, 3.0], overwrite=False)
         logging.info(f"Saved Clkk values to {fn_out}")
 
 if __name__ == '__main__':
+    from src.utils import setup_logging, load_config, filter_config
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
-    parser.add_argument("--output", type=str, help="Output directory to save convergence maps")
+    parser.add_argument("--output", type=str, default="/lustre/work/akira.tokiwa/Projects/LensingSSC/data/halofit",help="Output directory to save convergence maps")
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
     parser.add_argument('--config', type=str, help='Configuration file path')
 
     args = parser.parse_args()
+    config = load_config(args.config)
+    setup_logging()
 
-    # Initialize empty config
-    config = {}
-    # Load configuration from YAML if provided and exists
-    if args.config and os.path.exists(args.config):
-        with open(args.config, 'r') as file:
-            try:
-                config = yaml.safe_load(file)  # Load the configuration from YAML
-            except yaml.YAMLError as exc:
-                print("Warning: The config file is empty or invalid. Proceeding with default parameters.")
-                print(exc)
+    main_config = filter_config(config, main)
 
-    # Override YAML configuration with command-line arguments if provided
-    config.update({
-        'output': args.output if args.output else config.get('output', None),
-        'overwrite': args.overwrite if args.overwrite else config.get('overwrite', False),
-    })
-
-    main(savedir=args.output)
+    main(savedir=args.output, **main_config)

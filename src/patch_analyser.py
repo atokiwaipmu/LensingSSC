@@ -20,32 +20,46 @@ class PatchAnalyser:
         self.xsize = pp.xsize
 
     def process_patches(self, patches_kappa, patches_snr, num_processes=mp.cpu_count()):
+        global_std = np.std(patches_snr)
         with mp.Pool(processes=num_processes) as pool:
-            datas = pool.starmap(self._process_patch, zip(patches_kappa, patches_snr))
+            datas = pool.starmap(self._process_patch, zip(patches_kappa, patches_snr, [global_std] * len(patches_kappa)))
         return np.array(datas).astype(np.float32)
     
-    def _process_patch(self, patch_pixels, patch_snr_pixels):
+    def _process_patch(self, patch_pixels, patch_snr_pixels, global_std):
         """
         Processes a single patch, computing various statistics (bispectrum, power spectrum, peak counts, etc.).
         """
         # Process kappa (convergence) map
         conv_map = ConvergenceMap(patch_pixels, angle=self.patch_size * u.deg)
-        squeezed_bispectrum = self._compute_bispectrum(conv_map)
-        cl_power_spectrum = self._compute_power_spectrum(conv_map)
+        equilateral, isosceles, squeezed = self._compute_bispectrum(conv_map)
+        clkk = self._compute_power_spectrum(conv_map)
+        sk0, sk1, sk2, kur0, kur1, kur2, kur3 = self._compute_moments(conv_map, global_std)
         
         # Process SNR map
-        snr_map = ConvergenceMap(patch_snr_pixels, angle=self.patch_size * u.deg)
+        snr_map = ConvergenceMap(patch_snr_pixels/global_std, angle=self.patch_size * u.deg)
         pdf_vals = self._compute_pdf(snr_map)
         peaks = self._compute_peak_statistics(snr_map, is_minima=False)
         minima = self._compute_peak_statistics(snr_map, is_minima=True)
+        v0,v1,v2 = self._compute_minkowski_functionals(snr_map)
+
+        # Flatten all statistics into a single array
+        stats = np.hstack([
+            equilateral, isosceles, squeezed, clkk,
+            sk0, sk1, sk2, kur0, kur1, kur2, kur3,
+            pdf_vals, peaks, minima, v0, v1, v2
+        ])
+        
+        return stats
         
         # Concatenate all computed statistics
-        data_tmp = np.hstack([squeezed_bispectrum, cl_power_spectrum, pdf_vals, peaks, minima])
-        return data_tmp
+        #data_tmp = np.hstack([squeezed, cl_power_spectrum, pdf_vals, peaks, minima])
+        #return data_tmp
 
     def _compute_bispectrum(self, conv_map: ConvergenceMap):
-        _, squeezed = conv_map.bispectrum(self.l_edges, ratio=0.1, configuration='folded')
-        return squeezed
+        equilateral = conv_map.bispectrum(self.l_edges, configuration='equilateral')[1]
+        isosceles = conv_map.bispectrum(self.l_edges, ratio=0.5, configuration='folded')[1]
+        squeezed = conv_map.bispectrum(self.l_edges, ratio=0.1, configuration='folded')[1]
+        return equilateral, isosceles, squeezed
     
     def _compute_power_spectrum(self, conv_map: ConvergenceMap):
         _, cl = conv_map.powerSpectrum(self.l_edges)
@@ -66,6 +80,15 @@ class PatchAnalyser:
         peaks = peaks / np.sum(peaks) / self.binwidth
         return peaks
     
+    def _compute_minkowski_functionals(self, snr_map: ConvergenceMap):
+        _, v0,v1,v2 = snr_map.minkowskiFunctionals(self.bins)
+        return v0, v1, v2
+    
+    def _compute_moments(self, snr_map: ConvergenceMap, global_std: float):
+        moments = snr_map.moments()
+        sk0, sk1, sk2, kur0, kur1, kur2, kur3 = self._dimensionless_moments(moments, global_std)
+        return sk0, sk1, sk2, kur0, kur1, kur2, kur3
+    
     def _exclude_edges(self, heights, positions):
         """
         Excludes edge values from the peak or minima positions to avoid boundary issues.
@@ -75,3 +98,23 @@ class PatchAnalyser:
         mask = (tmp_positions[:, 0] > 0) & (tmp_positions[:, 0] < self.xsize - 1) & \
                (tmp_positions[:, 1] > 0) & (tmp_positions[:, 1] < self.xsize - 1)
         return heights[mask], tmp_positions[mask].astype(int)
+    
+    def _dimensionless_moments(self, moments, global_std):
+        """
+        Convert the raw moments to dimensionless form.
+        taken from lenstools.ConvergenceMap.moments
+        """
+        _,sigma1,S0,S1,S2,K0,K1,K2,K3 = moments
+        sigma0 = global_std
+
+        S0 /= sigma0**3
+        S1 /= (sigma0 * sigma1**2)
+        S2 *= (sigma0 / sigma1**4)
+
+        K0 /= sigma0**4
+        K1 /= (sigma0**2 * sigma1**2)
+        K2 /= sigma1**4
+        K3 /= sigma1**4
+
+        return S0,S1,S2,K0,K1,K2,K3
+        

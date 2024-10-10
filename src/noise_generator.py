@@ -173,19 +173,26 @@ if __name__ == "__main__":
 
     for kappa_map_path in kappa_map_paths:
         info = InfoExtractor.extract_info_from_path(kappa_map_path)
-        kappa_map = hp.read_map(str(kappa_map_path))
 
+        # make the list of file names planning to be generated
+        noisy_paths = []
         for ngal in config.get("ngal_list", []):
             if ngal == 0:
-                logging.info(f"Noiseless map for {kappa_map_path.name}. Skipping.")
                 continue
 
             noisy_path = noisy_dir / f"{kappa_map_path.stem}_ngal{ngal}.fits"
+            noisy_paths.append(noisy_path)
+        
+        # check if the file already exists, filter out the ones that do
+        noisy_paths = [path for path in noisy_paths if not path.exists() or args.overwrite]
+        if not noisy_paths:
+            logging.info(f"No noisy maps to be generated for {kappa_map_path.name}. Skipping.")
+            continue
 
-            if noisy_path.exists() and not args.overwrite:
-                logging.info(f"Noisy map {noisy_path.name} already exists. Skipping.")
-                continue
-
+        logging.info(f"Generating noisy maps for {kappa_map_path.name}.")
+        kappa_map = hp.read_map(str(kappa_map_path))
+        for noisy_path in noisy_paths:
+            ngal = int(noisy_path.stem.split("_")[-1].split("ngal")[-1])
             noise_gen.set_ngal(ngal)
             tmp_seed = int(info["seed"] + ngal + info["redshift"] * 100)
             noisy_map = noise_gen.add_noise(kappa_map, seed=tmp_seed)

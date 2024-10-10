@@ -1,33 +1,30 @@
 from setuptools import setup, find_packages
-import os
 
 setup(
     name='lensingSSC',
     version='0.1',
+    description='A package for analysing lensing simulations',
+    author='Akira Tokiwa',
+    author_email='akira.tokiwa@ipmu.jp',
     packages=find_packages(),
-    python_requires='>=3.8, <3.9',
     install_requires=[
         'numpy',
-        'scipy',
-        'astropy',
-        'tqdm',
+        'pyyaml',
         'healpy',
-        'bigfile',
         'matplotlib',
-        'argparse',
-        'json',
-        'logging',
-        'warnings',
-        'mpi4py',
-        'dataclasses'
+        'classy',
+        'lenstools',
+        'astropy',
+        'nbodykit',
+        'pandas',
+        'scipy',
     ],
-    entry_points={
-        'console_scripts': [
-            # Add any command line scripts here
-        ],
-    },
-    setup_requires=[
-        'setuptools>=42',
-        'wheel'
-    ],
+    python_requires='>=3.6',
 )
+
+# Installation instructions
+
+# To use this `setup.py`, save it in the root directory of your project.
+# To install your package, run the following command in your terminal:
+#
+#   pip install .
