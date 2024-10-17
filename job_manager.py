@@ -9,6 +9,7 @@ def run_job(
     ppn: int,
     if_omp: bool,
     if_submit: bool,
+    option: str = None,
 ) -> None:
     """
     Generates and submits jobs based on the provided configuration.
@@ -27,6 +28,7 @@ def run_job(
         job_generator.gen_script(
             module_name,
             script_name,
+            option=option,
             if_omp=if_omp,
             if_submit=if_submit,
         )
@@ -90,6 +92,8 @@ if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Job submission script")
     parser.add_argument("job", type=str, help="Job to run")
+    parser.add_argument("--dry-run", action="store_true", help="Print the job script without submitting")
+    parser.add_argument("--overwrite", action="store_true", help="allow overwriting existing files")
     args = parser.parse_args()
 
     job_name = args.job.lower()
@@ -97,6 +101,8 @@ if __name__ == "__main__":
     # Run the specified job
     if job_name in job_configs:
         config = job_configs[job_name]
+        if args.overwrite:
+            config["option"] = "--overwrite"
         run_job(**config)
     else:
         valid_jobs = ", ".join(job_configs.keys())

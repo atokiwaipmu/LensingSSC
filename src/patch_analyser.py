@@ -1,5 +1,6 @@
 
 import logging
+from operator import eq
 import numpy as np
 from astropy import units as u
 from lenstools import ConvergenceMap
@@ -14,6 +15,7 @@ class PatchAnalyser:
         self.lmin, self.lmax = lmin, lmax
         self.bins = np.linspace(-4, 4, self.nbin + 1, endpoint=True)
         self.l_edges = np.logspace(np.log10(self.lmin), np.log10(self.lmax), self.nbin + 1, endpoint=True)
+        self.ell = (self.l_edges[1:] + self.l_edges[:-1]) / 2
         self.binwidth = self.bins[1] - self.bins[0]
 
         self.patch_size = pp.patch_size_deg
@@ -45,24 +47,27 @@ class PatchAnalyser:
         # Flatten all statistics into a single array
         stats = np.hstack([
             equilateral, isosceles, squeezed, clkk,
-            sk0, sk1, sk2, kur0, kur1, kur2, kur3,
-            pdf_vals, peaks, minima, v0, v1, v2
+            pdf_vals, peaks, minima, v0, v1, v2,
+            sk0, sk1, sk2, kur0, kur1, kur2, kur3
         ])
         
         return stats
-        
-        # Concatenate all computed statistics
-        #data_tmp = np.hstack([squeezed, cl_power_spectrum, pdf_vals, peaks, minima])
-        #return data_tmp
 
     def _compute_bispectrum(self, conv_map: ConvergenceMap):
         equilateral = conv_map.bispectrum(self.l_edges, configuration='equilateral')[1]
         isosceles = conv_map.bispectrum(self.l_edges, ratio=0.5, configuration='folded')[1]
         squeezed = conv_map.bispectrum(self.l_edges, ratio=0.1, configuration='folded')[1]
+
+        equilateral = np.abs(PatchAnalyser._dimensionless_bispectrum(equilateral, self.ell))
+        isosceles = np.abs(PatchAnalyser._dimensionless_bispectrum(isosceles, self.ell))
+        squeezed = np.abs(PatchAnalyser._dimensionless_bispectrum(squeezed, self.ell))
+
         return equilateral, isosceles, squeezed
     
     def _compute_power_spectrum(self, conv_map: ConvergenceMap):
         _, cl = conv_map.powerSpectrum(self.l_edges)
+
+        cl = PatchAnalyser._dimensionless_cl(cl, self.ell)
         return cl
     
     def _compute_pdf(self, snr_map: ConvergenceMap):
@@ -117,4 +122,12 @@ class PatchAnalyser:
         K3 /= sigma1**4
 
         return S0,S1,S2,K0,K1,K2,K3
+    
+    @staticmethod
+    def _dimensionless_cl(cl, ell):
+        return ell * (ell+1) * cl / (2*np.pi)
+    
+    @staticmethod
+    def _dimensionless_bispectrum(bispec, ell):
+        return bispec * ell**4 / (2*np.pi)**2
         

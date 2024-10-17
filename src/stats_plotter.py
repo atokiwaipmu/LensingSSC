@@ -10,7 +10,7 @@ from src.info_extractor import InfoExtractor
 
 
 class StatsPlotter:
-    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 1.5, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
+    def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
         self.data_dir = data_dir
         self.save_dir = save_dir
         os.makedirs(self.save_dir, exist_ok=True)
@@ -20,12 +20,27 @@ class StatsPlotter:
         self.oa = oa
         self.zs_list = zs_list
         self.colors = {zs: color for zs, color in zip(zs_list, ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"])}
-        self.labels = [r'$B_{\ell}^\mathrm{sq}$', 
-          r'$C^{\kappa\kappa}_{\ell}$', 
-          "PDF",
-          "Peaks",
-          "Minima"]
+        self.labels = [
+            r'$|B_{\ell}^\mathrm{eq}|$', 
+            r'$|B_{\ell}^\mathrm{iso}|$', 
+            r'$|B_{\ell}^\mathrm{sq}$|', 
+            r"$C^{\kappa\kappa}_{\ell}$",
+            "PDF",
+            "Peaks",
+            "Minima",
+            r"$V_{0}$",
+            r"$V_{1}$",
+            r"$V_{2}$",
+            #r"$S_{k0}$",
+            #r"$S_{k1}$",
+            #r"$S_{k2}$",
+            #r"$K_{0}$",
+            #r"$K_{1}$",
+            #r"$K_{2}$",
+            #r"$K_{3}$"
+        ]
 
+        self.nbin = nbin
         self.l_edges = np.logspace(np.log10(lmin), np.log10(lmax), nbin + 1, endpoint=True)
         self.bins = np.linspace(-4, 4, nbin + 1, endpoint=True)
 
@@ -45,11 +60,15 @@ class StatsPlotter:
         for zs in self.zs_list:
             self._plot_mean(stats_tiled, stats_bigbox, zs, ax_mean, is_patch)
             self._plot_diag(stats_tiled, stats_bigbox, zs, ax_diag, is_patch)
+            self._plot_corr(stats_tiled, stats_bigbox, zs, is_patch=is_patch)
 
         suffix = self._generate_suffix(is_patch)
         prefix = "patch" if is_patch else "fullsky"
         fig_mean.savefig(os.path.join(self.save_dir, prefix + "_mean_" + suffix + ".png"), bbox_inches='tight')
         fig_diag.savefig(os.path.join(self.save_dir, prefix + "_diag_" + suffix + ".png"), bbox_inches='tight')
+
+        plt.close(fig_mean)
+        plt.close(fig_diag)
  
     def _load_stats(self, is_patch=False, box_type='tiled'):
         suffix = self._generate_suffix(is_patch)
@@ -66,17 +85,17 @@ class StatsPlotter:
         return suffix
 
     def _prepare_fig(self, is_patch=False, target='mean'):
-        fig = plt.figure(figsize=(15, 6))
+        fig = plt.figure(figsize=(20, 10))
 
-        gs_master = GridSpec(nrows=2, ncols=3, height_ratios=[1, 1], hspace=0.3)
-        gs_ell = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[0, j], height_ratios=[3, 1], hspace=0.01) for j in range(2)]
-        gs_nu = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[1, j], height_ratios=[3, 1], hspace=0.01) for j in range(3)]
+        gs_master = GridSpec(nrows=3, ncols=4, height_ratios=[1, 1, 1], hspace=0.3)
+        gs_ell = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[0, j], height_ratios=[3, 1], hspace=0.01) for j in range(4)]
+        gs_nu = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[1, j], height_ratios=[3, 1], hspace=0.01) for j in range(3)] + [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[2, j], height_ratios=[3, 1], hspace=0.01) for j in range(3)]
 
-        axes_ell = [plt.subplot(gs_ell[j][0]) for j in range(2)]
-        axes_nu = [plt.subplot(gs_nu[j][0]) for j in range(3)]
-        axes_ratio_ell = [plt.subplot(gs_ell[j][1]) for j in range(2)]
-        axes_ratio_nu = [plt.subplot(gs_nu[j][1]) for j in range(3)]
-        axes_legend = plt.subplot(gs_master[0, 2])
+        axes_ell = [plt.subplot(gs_ell[j][0]) for j in range(4)]
+        axes_nu = [plt.subplot(gs_nu[j][0]) for j in range(6)]
+        axes_ratio_ell = [plt.subplot(gs_ell[j][1]) for j in range(4)]
+        axes_ratio_nu = [plt.subplot(gs_nu[j][1]) for j in range(6)]
+        axes_legend = plt.subplot(gs_master[2, 3])
 
         for ax in axes_ell:
             ax.set_yscale('log')
@@ -119,14 +138,14 @@ class StatsPlotter:
 
     def _plot_mean(self, stats_tiled, stats_bigbox, zs, ax, is_patch=False, box_type='tiled'):
         axes_ell, axes_nu, axes_ratio_ell, axes_ratio_nu, axes_legend = ax
-        n_stats = 5 if is_patch else 4
-        ell_switch = 2 if is_patch else 1
+        n_stats = 10 if is_patch else 4
+        ell_switch = 4 if is_patch else 1
 
-        means_tiled, stds_tiled = stats_tiled[zs]['means'], stats_tiled[zs]['stds']
+        means_tiled, stds_tiled = stats_tiled[zs]['means'][:-7], stats_tiled[zs]['stds'][:-7]
         datas_tiled = np.split(means_tiled, n_stats)
         data_stds_tiled = np.split(stds_tiled, n_stats)
 
-        means_bigbox, stds_bigbox = stats_bigbox[zs]['means'], stats_bigbox[zs]['stds']
+        means_bigbox, stds_bigbox = stats_bigbox[zs]['means'][:-7], stats_bigbox[zs]['stds'][:-7]
         datas_bigbox = np.split(means_bigbox, n_stats)
         data_stds_bigbox = np.split(stds_bigbox, n_stats)
 
@@ -154,13 +173,13 @@ class StatsPlotter:
 
     def _plot_diag(self, stats_tiled, stats_bigbox, zs, ax, is_patch=False, box_type='tiled'):
         axes_ell, axes_nu, axes_ratio_ell, axes_ratio_nu, axes_legend = ax
-        n_stats = 5 if is_patch else 4
-        ell_switch = 2 if is_patch else 1
+        n_stats = 10 if is_patch else 4
+        ell_switch = 4 if is_patch else 1
 
-        diags_tiled = stats_tiled[zs]['diags']
+        diags_tiled = stats_tiled[zs]['diags'][:-7]
         datas_tiled = np.split(diags_tiled, n_stats)
 
-        diags_bigbox = stats_bigbox[zs]['diags']
+        diags_bigbox = stats_bigbox[zs]['diags'][:-7]
         datas_bigbox = np.split(diags_bigbox, n_stats)
 
         for i in range(len(datas_tiled)):
@@ -184,6 +203,52 @@ class StatsPlotter:
 
         axes_legend.legend(*axes_ell[0].get_legend_handles_labels(), loc='center', fontsize=12)
         axes_legend.axis('off')
+    
+    def _plot_corr(self, stats_tiled, stats_bigbox, zs, vmin=-0.3, vmax=0.3, is_patch=True):    
+        corr_tiled = stats_tiled[zs]['corr']
+        corr_bigbox = stats_bigbox[zs]['corr']
+
+        n_stats = 10 if is_patch else 4
+        tick_positions = [self.nbin/2 + self.nbin * i for i in range(n_stats)]
+
+        fig = plt.figure(figsize=(18, 6))
+        gs_master = GridSpec(nrows=2, ncols=1, height_ratios=[1, 9])
+        gs_plot = GridSpecFromSubplotSpec(1, 3, subplot_spec=gs_master[1], wspace=0.2)
+        ax = [fig.add_subplot(gs_plot[i]) for i in range(3)]
+
+        cax = ax[0].imshow(corr_tiled, cmap='bwr', vmin=-1, vmax=1)
+        fig.colorbar(cax, ax=ax[0], shrink=0.6)
+        ax[0].set_title("Tiled", fontsize=10)
+
+        cax = ax[1].imshow(corr_bigbox, cmap='bwr', vmin=-1, vmax=1)
+        fig.colorbar(cax, ax=ax[1], shrink=0.6)
+        ax[1].set_title("Bigbox", fontsize=10)
+
+        cax = ax[2].imshow(corr_bigbox - corr_tiled, cmap='bwr', vmin=vmin, vmax=vmax)
+        fig.colorbar(cax, ax=ax[2], shrink=0.6)
+        ax[2].set_title("BigBox - Tiled", fontsize=10)
+
+        for axes in ax:
+            axes.set_xticks(tick_positions, self.labels, fontsize=8)
+            axes.set_yticks(tick_positions, self.labels, fontsize=8, rotation=90, va='center')
+            axes.invert_yaxis()
+
+        title = "Correlation Matrix"+f": Scale Angle: {sl}"+r"''"+f", Redshift: {zs}"
+        title += f", ngal={ngal}" if ngal != 0 else ", noiseless"
+        ax_title = fig.add_subplot(gs_master[0])
+        ax_title.text(0.5, 0.5, title, fontsize=12, ha='center', va='center')
+        ax_title.axis('off')
+
+        suffix = self._generate_suffix(is_patch)
+        prefix = "patch" if is_patch else "fullsky"
+        fname = os.path.join(self.save_dir, prefix + "_corr_" + f"_zs{zs}" + suffix + ".png")
+
+        fig.savefig(fname, bbox_inches='tight')
+        print(f"Saved: {fname}")
+        plt.show()
+        plt.close(fig)
+
+    
 
 def plot_kappa(files, datadir):
     zs_order = [0.5, 1, 1.5, 2, 2.5]

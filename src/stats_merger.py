@@ -9,7 +9,7 @@ from src.utils import find_data_dirs, separate_dirs
 from src.info_extractor import InfoExtractor
 
 class StatsMerger:
-    def __init__(self, data_dirs, sl, ngal, oa=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", overwrite=False):
+    def __init__(self, data_dirs, sl, ngal, opening_angle=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", overwrite=False):
         self.data_dirs = data_dirs
         self.tiled_dirs, self.bigbox_dirs = separate_dirs(data_dirs)
         self.save_dir = save_dir
@@ -18,14 +18,8 @@ class StatsMerger:
 
         self.sl = sl
         self.ngal = ngal
-        self.oa = oa
+        self.oa = opening_angle
         self.zs_list = zs_list
-
-        self.l_edges = np.logspace(np.log10(lmin), np.log10(lmax), nbin + 1, endpoint=True)
-        self.bins = np.linspace(-4, 4, nbin + 1, endpoint=True)
-
-        self.ell = (self.l_edges[1:] + self.l_edges[:-1]) / 2
-        self.nu = (self.bins[1:] + self.bins[:-1]) / 2
 
     def run(self):
         #self._run_and_save(is_patch=False, box_type='tiled')
@@ -88,29 +82,8 @@ class StatsMerger:
 
     def _load_stats(self, data_dir, zs, is_patch=False):
         fname = self._generate_fname(data_dir, zs, is_patch)
-        data = np.load(os.path.join(data_dir, "analysis_fullsky", fname)) if not is_patch else np.load(os.path.join(data_dir, "analysis_patch", fname))
-
-        if is_patch:
-            sq, clkk, pdf, peak, minima = np.split(data, 5, axis=1)
-            sq = np.abs(sq)
-            sq = EllHelper.dimensionless_bispectrum(sq, self.ell)
-            clkk = EllHelper.dimensionless_cl(clkk, self.ell)
-            data = np.hstack([sq, clkk, pdf, peak, minima])
-        else:
-            clkk, pdf, peak, minima = np.split(data, 4)
-            clkk = EllHelper.dimensionless_cl(clkk, self.ell)
-            data = np.hstack([clkk, pdf, peak, minima])
-            
+        data = np.load(os.path.join(data_dir, "analysis_fullsky", fname)) if not is_patch else np.load(os.path.join(data_dir, "analysis_patch", fname))            
         return data
-
-class EllHelper:
-    @staticmethod
-    def dimensionless_cl(cl, ell):
-        return ell * (ell+1) * cl / (2*np.pi)
-
-    @staticmethod
-    def dimensionless_bispectrum(bispec, ell):
-        return bispec * ell**4 / (2*np.pi)**2
 
 if __name__ == "__main__":
     import argparse
