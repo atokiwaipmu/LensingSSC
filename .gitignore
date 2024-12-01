@@ -161,12 +161,10 @@ cython_debug/
 
 data/
 job/
+jobs/
 log/
-job/log
 references/
 results/
 src/LEGACY/
 src/extra/
-img/comparison
-img/fullsky/
-plot/maps/
+output/

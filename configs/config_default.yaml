@@ -7,7 +7,7 @@ lmin: 300
 lmax: 3000
 nside: 8192
 ngal: 30
-epsilon: 0.3
+epsilon: 0.26
 scale_angle: 2
 opening_angle: 10
 zs_list:

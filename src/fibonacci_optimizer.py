@@ -75,7 +75,7 @@ class FibonacciOptimizer:
 
         theta, phi = center
         vertices = self.vertices_from_center([np.pi / 2, 0])
-        rotated_vertices = np.array([SphereRotator.rotate_point(vertex, theta, phi) for vertex in vertices])
+        rotated_vertices = np.array([SphereRotator.rotate_point(theta, phi, vertex) for vertex in vertices])
         return rotated_vertices
 
     def vertices_from_center(self, center):

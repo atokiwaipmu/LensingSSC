@@ -1,6 +1,5 @@
 
 import logging
-from operator import eq
 import numpy as np
 from astropy import units as u
 from lenstools import ConvergenceMap

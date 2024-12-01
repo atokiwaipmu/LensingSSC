@@ -3,11 +3,314 @@ import os
 import numpy as np
 import healpy as hp
 import logging
-from matplotlib import pyplot as plt
+from matplotlib import axes, pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 
 from src.info_extractor import InfoExtractor
 
+def reorder_correlation_matrix(corr_matrix, stats_names, desired_order):
+    """
+    Reorders a correlation matrix based on a desired order of statistics.
+
+    Parameters:
+    - corr_matrix (np.ndarray): The original correlation matrix of shape (157, 157).
+    - stats_names (dict): Mapping from statistic names to [start, end] indices.
+    - desired_order (list of str): The desired order of statistic names.
+
+    Returns:
+    - np.ndarray: The reordered correlation matrix.
+    """
+    # Initialize list to hold the new order of indices
+    permuted_indices = []
+
+    # Iterate over each statistic in the desired order
+    for stat in desired_order:
+        if stat not in stats_names:
+            raise ValueError(f"Statistic '{stat}' not found in stats_names mapping.")
+        
+        start, end = stats_names[stat]
+        # Append all indices for this statistic
+        stat_indices = list(range(start, end))
+        permuted_indices.extend(stat_indices)
+    
+    # Verify that all indices are included
+    total_indices = corr_matrix.shape[0]
+    if len(permuted_indices) != total_indices:
+        raise ValueError(
+            f"The desired order includes {len(permuted_indices)} indices, "
+            f"but the correlation matrix has {total_indices} indices."
+        )
+    
+    # Check for duplicate or missing indices
+    if sorted(permuted_indices) != list(range(total_indices)):
+        missing = set(range(total_indices)) - set(permuted_indices)
+        duplicates = [idx for idx in permuted_indices if permuted_indices.count(idx) > 1]
+        error_message = ""
+        if missing:
+            error_message += f"Missing indices: {missing}. "
+        if duplicates:
+            error_message += f"Duplicate indices: {set(duplicates)}."
+        raise ValueError(f"Permutation indices are invalid. {error_message}")
+    
+    # Reorder the correlation matrix
+    reordered_corr_matrix = corr_matrix[np.ix_(permuted_indices, permuted_indices)]
+    
+    return reordered_corr_matrix
+
+class FinalPlotter:
+    def __init__(self, 
+                 sl_main = 2,
+                 ngal_main = 0,
+                 sl_list = [2, 5, 8, 10],
+                 ngal_list = [0, 7, 15, 30, 50], 
+                 data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", 
+                 oa=10, 
+                 zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], 
+                 lmin=300, lmax=3000, nbin = 15, 
+                 maincmap="viridis", subcmap='cividis',
+                 save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
+        self.data_dir = data_dir
+        self.save_dir = save_dir
+        os.makedirs(self.save_dir, exist_ok=True)
+
+        self.sl_main = sl_main
+        self.ngal_main = ngal_main
+        self.sl_list = sl_list
+        self.ngal_list = ngal_list
+        self.oa = oa
+        self.zs_list = zs_list
+        self.colors = {zs: color for zs, color in zip(zs_list, ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"])}
+        self.labels = [
+            r"$C^{\kappa\kappa}_{\ell}$",
+            r'$B_{\ell}^\mathrm{sq}$',  
+            r'$B_{\ell}^\mathrm{iso}$',
+            r'$B_{\ell}^\mathrm{eq}$', 
+            "Moment",
+            "PDF",
+            "Peak",
+            "Min",
+            r"$Area_\mathrm{MF}$",
+            r"$Perim_\mathrm{MF}$",
+            r"$Genus_\mathrm{MF}$",
+        ]
+
+        self.stats_name_indices = {
+            'angular power spectrum': [45, 60],
+            'squeezed bispectrum': [30, 45],
+            'isosceles bispectrum': [15, 30],
+            'equilateral bispectrum': [0, 15],
+            'PDF': [60, 75],
+            'Peak': [75, 90],
+            'Minima': [90, 105],
+            'area(MFs)': [105, 120],
+            'perimeter(MFs)': [120, 135],
+            'genus(MFs)': [135, 150],
+            'Skewness_0': [150, 151],
+            'Skewness_1': [151, 152],
+            'Skewness_2': [152, 153],
+            'Kurtosis_0': [153, 154],
+            'Kurtosis_1': [154, 155],
+            'Kurtosis_2': [155, 156],
+            'Kurtosis_3': [156, 157],
+        }
+
+        self.stats_desired_order = [
+            'angular power spectrum',
+            'squeezed bispectrum',
+            'isosceles bispectrum',
+            'equilateral bispectrum',
+            'Skewness_0',
+            'Skewness_1',
+            'Skewness_2',
+            'Kurtosis_0',
+            'Kurtosis_1',
+            'Kurtosis_2',
+            'Kurtosis_3',
+            'PDF',
+            'Peak',
+            'Minima',
+            'area(MFs)',
+            'perimeter(MFs)',
+            'genus(MFs)'
+        ]
+        self.permuted_indices = self.prepare_permuted_indices()
+        self.permuted_stats_name_indices = {stat: self.permuted_indices[start:end] for stat, [start, end] in self.stats_name_indices.items()}
+
+        self.nbin = nbin
+        self.l_edges = np.logspace(np.log10(lmin), np.log10(lmax), nbin + 1, endpoint=True)
+        self.bins = np.linspace(-4, 4, nbin + 1, endpoint=True)
+
+        self.ell = (self.l_edges[1:] + self.l_edges[:-1]) / 2
+        self.nu = (self.bins[1:] + self.bins[:-1]) / 2
+
+        self.maincmap = maincmap
+        self.subcmap = subcmap
+
+    def prepare_permuted_indices(self):
+        permuted_indices = []
+        for stat in self.stats_desired_order:
+            if stat not in self.stats_name_indices:
+                raise ValueError(f"Statistic '{stat}' not found in stats_name_indices mapping.")
+            
+            start, end = self.stats_name_indices[stat]
+            stat_indices = list(range(start, end))
+            permuted_indices.extend(stat_indices)
+        
+        return permuted_indices
+
+    def plot(self):
+        self.plot_mean()
+
+    def _prepare_fig(self):
+        fig = plt.figure(figsize=(14, 8))
+        gs_master = GridSpec(nrows=2, ncols=5, height_ratios=[1, 1], hspace=0.3)
+        gs_ell = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[0, j], height_ratios=[3, 1], hspace=0.01) for j in range(5)]
+        gs_nu = [GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_master[1, j], height_ratios=[3, 1], hspace=0.01) for j in range(5)]
+
+        axes_ell = [plt.subplot(gs_ell[j][0]) for j in range(4)]
+        axes_nu = [plt.subplot(gs_ell[4][0])] + [plt.subplot(gs_nu[j][0]) for j in range(5)]
+        axes_ratio_ell = [plt.subplot(gs_ell[j][1]) for j in range(4)]
+        axes_ratio_nu = [plt.subplot(gs_ell[4][1])] + [plt.subplot(gs_nu[j][1]) for j in range(5)]
+
+        for ax in axes_ell + axes_ratio_ell:
+            ax.set_xscale('log')
+            ax.set_xticks([300, 500, 1000, 2000, 3000])
+
+        for ax in axes_nu + axes_ratio_nu:
+            ax.set_xticks([-4, -2, 0, 2, 4])
+
+        for ax in axes_ratio_ell + axes_ratio_nu:
+            ax.set_ylim(0.8, 1.2)
+
+        for ax in axes_ell + axes_nu:
+            ax.set_yscale('log')
+            ax.set_xticklabels([])
+        
+        for ax in axes_ratio_nu:
+            ax.hlines(1, -4, 4, color='k', linestyle='--')
+
+        for ax in axes_ratio_ell:
+            ax.hlines(1, 300, 3000, color='k', linestyle='--')
+
+        ax = [axes_ell, axes_nu, axes_ratio_ell, axes_ratio_nu]
+
+        return fig, ax
+    
+    def _load_stats(self, sl, ngal, box_type='tiled'):
+        suffix = self._generate_suffix(sl, ngal)
+        fname = f"patch_stats_{box_type}_{suffix}.npy"
+        load_path = os.path.join(self.data_dir, fname)
+        print(f"Loading stats from {os.path.basename(load_path)}")
+        return np.load(load_path, allow_pickle=True).item()
+    
+    def _generate_suffix(self, sl, ngal):
+        suffix = f"oa{self.oa}_noiseless_sl{sl}" 
+        if self.ngal != 0:
+            suffix = suffix.replace("noiseless", f"ngal{ngal}")
+        return suffix
+
+    def plot_mean(self):
+        fig, ax = self._prepare_fig()
+        axes_ell, axes_nu, axes_ratio_ell, axes_ratio_nu = ax
+        stats_tiled = self._load_stats(self.sl_main, self.ngal_main, box_type='tiled')
+        stats_bigbox = self._load_stats(self.sl_main, self.ngal_main, box_type='bigbox')
+        for zs in self.zs_list:
+            means_tiled, stds_tiled = stats_tiled[zs]['means'][self.permuted_indices], stats_tiled[zs]['stds'][self.permuted_indices]
+            means_bigbox, stds_bigbox = stats_bigbox[zs]['means'][self.permuted_indices], stats_bigbox[zs]['stds'][self.permuted_indices]
+
+            for i, label in enumerate(self.stats_desired_order):
+                if label in ['angular power spectrum','squeezed bispectrum','isosceles bispectrum','equilateral bispectrum']:
+                    axes_ell[i].errorbar(self.ell, means_bigbox[self.permuted_stats_name_indices[label]], yerr=stds_bigbox[self.permuted_stats_name_indices[label]], label=f"Bigbox: zs={zs}", color=self.colors[zs])
+                    axes_ell[i].errorbar(self.ell, means_tiled[self.permuted_stats_name_indices[label]], yerr=stds_tiled[self.permuted_stats_name_indices[label]], label=f"Tiled: zs={zs}", color=self.colors[zs], linestyle='--')
+
+                    axes_ratio_ell[i].plot(self.ell, means_tiled[self.permuted_stats_name_indices[label]] / means_bigbox[self.permuted_stats_name_indices[label]], color=self.colors[zs])
+                    axes_ell[i].set_title(self.labels[i])                   
+                elif label in ['PDF','Peak','Minima','area(MFs)','perimeter(MFs)','genus(MFs)']:
+                    k = i - len(self.stats_name_indices)
+                    axes_nu[k].errorbar(self.nu, means_bigbox[self.permuted_stats_name_indices[label]], yerr=stds_bigbox[self.permuted_stats_name_indices[label]], label=f"Bigbox: zs={zs}", color=self.colors[zs])
+                    axes_nu[k].errorbar(self.nu, means_tiled[self.permuted_stats_name_indices[label]], yerr=stds_tiled[self.permuted_stats_name_indices[label]], label=f"Tiled: zs={zs}", color=self.colors[zs], linestyle='--')
+
+                    axes_ratio_nu[k].plot(self.nu, means_tiled[self.permuted_stats_name_indices[label]] / means_bigbox[self.permuted_stats_name_indices[label]], color=self.colors[zs])
+                    axes_nu[k].set_title(self.labels[k])
+                            
+        fig.savefig(os.path.join(self.save_dir, "mean_final.png"), bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_diag(self):
+        fig, ax = self._prepare_fig()
+        axes_ell, axes_nu, axes_ratio_ell, axes_ratio_nu = ax
+        stats_tiled = self._load_stats(self.sl_main, self.ngal_main, box_type='tiled')
+        stats_bigbox = self._load_stats(self.sl_main, self.ngal_main, box_type='bigbox')
+        for zs in self.zs_list:
+            diags_tiled = stats_tiled[zs]['diags'][self.permuted_indices]
+            diags_bigbox = stats_bigbox[zs]['diags'][self.permuted_indices]
+
+            for i, label in enumerate(self.stats_desired_order):
+                if label in ['angular power spectrum','squeezed bispectrum','isosceles bispectrum','equilateral bispectrum']:
+                    axes_ell[i].plot(self.ell, diags_bigbox[self.permuted_stats_name_indices[label]], label=f"Bigbox: zs={zs}", color=self.colors[zs])
+                    axes_ell[i].plot(self.ell, diags_tiled[self.permuted_stats_name_indices[label]], label=f"Tiled: zs={zs}", color=self.colors[zs], linestyle='--')
+
+                    axes_ratio_ell[i].plot(self.ell, diags_tiled[self.permuted_stats_name_indices[label]] / diags_bigbox[self.permuted_stats_name_indices[label]], color=self.colors[zs])
+                    axes_ell[i].set_title(self.labels[i])                   
+                elif label in ['PDF','Peak','Minima','area(MFs)','perimeter(MFs)','genus(MFs)']:
+                    k = i - len(self.stats_name_indices)
+                    axes_nu[k].plot(self.nu, diags_bigbox[self.permuted_stats_name_indices[label]], label=f"Bigbox: zs={zs}", color=self.colors[zs])
+                    axes_nu[k].plot(self.nu, diags_tiled[self.permuted_stats_name_indices[label]], label=f"Tiled: zs={zs}", color=self.colors[zs], linestyle='--')
+
+                    axes_ratio_nu[k].plot(self.nu, diags_tiled[self.permuted_stats_name_indices[label]] / diags_bigbox[self.permuted_stats_name_indices[label]], color=self.colors[zs])
+                    axes_nu[k].set_title(self.labels[k])
+                            
+        fig.savefig(os.path.join(self.save_dir, "diag_final.png"), bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_corr_noiseless(self):
+        fig = plt.figure(figsize=(35, 14))
+        gs_master = GridSpec(nrows=2, ncols=5, height_ratios=[1, 1], hspace=0.1)
+        axes_merged = [plt.subplot(gs_master[0, j]) for j in range(5)]
+        axes_diff = [plt.subplot(gs_master[1, j]) for j in range(5)]
+
+        for ax in axes_merged + axes_diff:
+            ax.axis('off')
+
+        stats_tiled = self._load_stats(self.sl_main, self.ngal_main, box_type='tiled')
+        stats_bigbox = self._load_stats(self.sl_main, self.ngal_main, box_type='bigbox')
+        for i, zs in enumerate(self.zs_list):
+            corr_tiled = stats_tiled[zs]['corr'][np.ix_(self.permuted_indices, self.permuted_indices)]
+            corr_bigbox = stats_bigbox[zs]['corr'][np.ix_(self.permuted_indices, self.permuted_indices)]
+            corr_merged = merge_corr(corr_tiled, corr_bigbox)
+            corr_diff = corr_bigbox - corr_tiled
+
+            cax = axes_merged[i].imshow(corr_merged, cmap=self.maincmap, vmin=-1, vmax=1)
+            fig.colorbar(cax, ax=axes_merged[i], shrink=0.6)
+
+            cax = axes_diff[i].imshow(corr_diff, cmap=self.subcmap, vmin=-0.3, vmax=0.3)
+            fig.colorbar(cax, ax=axes_diff[i], shrink=0.6)
+
+            axes_merged[i].set_title(f"zs={zs}")
+            axes_diff[i].set_title(f"zs={zs}")
+
+        fig.savefig(os.path.join(self.save_dir, "corr_noiseless_final.png"), bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_corr_ngal(self):
+        fig = plt.figure(figsize=(35, 35))
+        gs_master = GridSpec(nrows=5, ncols=5, height_ratios=[1, 1], hspace=0.1)
+
+        for i, ngal in enumerate(self.ngal_list):
+            stats_tiled = self._load_stats(self.sl_main, ngal, box_type='tiled')
+            stats_bigbox = self._load_stats(self.sl_main, ngal, box_type='bigbox')
+            for j, zs in enumerate(self.zs_list):
+                corr_tiled = stats_tiled[zs]['corr'][np.ix_(self.permuted_indices, self.permuted_indices)]
+                corr_bigbox = stats_bigbox[zs]['corr'][np.ix_(self.permuted_indices, self.permuted_indices)]
+                corr_diff = corr_bigbox - corr_tiled
+
+                axes_merged = plt.subplot(gs_master[i, j])
+                cax = axes_merged.imshow(merge_corr(corr_tiled, corr_bigbox), cmap=self.maincmap, vmin=-0.3, vmax=0.3)
+                fig.colorbar(cax, ax=axes_merged, shrink=0.6)
+                axes_merged.set_title(f"ngal={ngal}, zs={zs}")
+
+        fig.savefig(os.path.join(self.save_dir, "corr_ngal_final.png"), bbox_inches='tight')
+        plt.close(fig)
 
 class StatsPlotter:
     def __init__(self, sl, ngal, data_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", oa=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], lmin=300, lmax=3000, nbin = 15, save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/plot"):
@@ -21,23 +324,17 @@ class StatsPlotter:
         self.zs_list = zs_list
         self.colors = {zs: color for zs, color in zip(zs_list, ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple"])}
         self.labels = [
-            r'$|B_{\ell}^\mathrm{eq}|$', 
-            r'$|B_{\ell}^\mathrm{iso}|$', 
-            r'$|B_{\ell}^\mathrm{sq}$|', 
             r"$C^{\kappa\kappa}_{\ell}$",
+            r'$B_{\ell}^\mathrm{sq}$',  
+            r'$B_{\ell}^\mathrm{iso}$',
+            r'$B_{\ell}^\mathrm{eq}$', 
+            "Moment",
             "PDF",
-            "Peaks",
-            "Minima",
-            r"$V_{0}$",
-            r"$V_{1}$",
-            r"$V_{2}$",
-            #r"$S_{k0}$",
-            #r"$S_{k1}$",
-            #r"$S_{k2}$",
-            #r"$K_{0}$",
-            #r"$K_{1}$",
-            #r"$K_{2}$",
-            #r"$K_{3}$"
+            "Peak",
+            "Min",
+            r"$Area_\mathrm{MF}$",
+            r"$Perim_\mathrm{MF}$",
+            r"$Genus_\mathrm{MF}$",
         ]
 
         self.nbin = nbin
@@ -329,6 +626,20 @@ def plot_corr(fname, corr_tiled, corr_bigbox, title, title_tiled, title_bigbox, 
     print(f"Saved: {fname}")
     plt.show()
     plt.close(fig)
+
+def merge_corr(corr1, corr2):
+    if corr1.shape != corr2.shape or corr1.ndim != 2 or corr1.shape[0] != corr1.shape[1]:
+        raise ValueError("Both correlation matrices must be square and have the same shape.")
+    
+    merged_corr = np.zeros_like(corr1)
+    upper_indices = np.triu_indices_from(corr1, k=1)
+    lower_indices = np.tril_indices_from(corr1, k=-1)
+    
+    merged_corr[upper_indices] = corr1[upper_indices]
+    merged_corr[lower_indices] = corr2[lower_indices]
+    np.fill_diagonal(merged_corr, 1.0)
+    
+    return merged_corr
 
 if __name__ == "__main__":
     

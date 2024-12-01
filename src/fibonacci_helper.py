@@ -107,7 +107,7 @@ class SphereRotator:
 
 class FibonacciHelper:
     @staticmethod
-    def fibonacci_grid_on_sphere(N: int) -> np.ndarray:
+    def fibonacci_grid_on_sphere(n: int) -> np.ndarray:
         """
         Generate a Fibonacci lattice grid of N points distributed over the surface of a sphere.
 
@@ -117,12 +117,23 @@ class FibonacciHelper:
         Returns:
             np.ndarray: An Nx2 array of spherical coordinates (theta, phi).
         """
-        indices = np.arange(0, N, dtype=float) + 0.5
-        phi = np.pi * (3.0 - math.sqrt(5.0))  # Golden angle in radians
-        theta = np.arccos(1 - 2 * indices / N)
-        phi_i = phi * indices
-        phi_i = np.mod(phi_i, 2 * np.pi)  # Ensure phi_i is within [0, 2π)
-        return np.column_stack((theta, phi_i))
+        if n//2 == 0:
+            raise ValueError("Number of points must be an odd integer.")
+        else:
+            N = (n-1) // 2
+
+        phi = (1 + np.sqrt(5)) / 2  # Golden ratio
+        indices = np.arange(-N, N+1, 1, dtype=int)
+        theta_i = np.arcsin(2 * indices / (2 * N + 1))
+        phi_i = 2 * np.pi * indices / phi
+
+        # Ensure theta_i is within [0, π]
+        theta_i += np.pi / 2
+
+        # Ensure phi_i is within [0, 2π)
+        phi_i = np.mod(phi_i, 2 * np.pi)
+        
+        return np.column_stack((theta_i, phi_i))
 
     @staticmethod
     def get_patch_pixels(image: np.ndarray, side_length: int) -> np.ndarray:

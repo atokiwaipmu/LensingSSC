@@ -49,9 +49,11 @@ class KappaAnalyser:
                     logging.info(f"Skipping fullsky map for {fname}")
 
     def _analyse_patch(self):
+        logging.info("Starting patch analysis: Found %d kappa patches and %d snr patches" % (len(self.patch_kappa_paths), len(self.patch_snr_paths)))
         for patch_kappa_path in self.patch_kappa_paths:
             tmp_kappa_patches = None
             tmp_snr_paths = self._filter_paths_by_input(self.patch_snr_paths, patch_kappa_path) # assuming oa is the same for kappa and snr
+            logging.info(f"Found {len(tmp_snr_paths)} snr patches for {patch_kappa_path}")
 
             for patch_snr_path in tmp_snr_paths:
                 fname = os.path.basename(patch_snr_path).replace('patches', 'analysis')
@@ -92,7 +94,10 @@ class KappaAnalyser:
     def _filter_paths_by_input(self, paths, input_path):
         info = InfoExtractor.extract_info_from_path(input_path)
         noise = 'noiseless' if info['ngal'] == 0 else f'ngal{info["ngal"]}'
-        return [path for path in paths if (noise in path) and (f"zs{info['redshift']}" in path) and (f"s{info['seed']}" in path)]
+        if info['seed'] is None:
+            return [path for path in paths if (noise in path) and (f"zs{info['redshift']}" in path)]
+        else:
+            return [path for path in paths if (noise in path) and (f"zs{str(info['redshift'])}" in path) and (f"s{str(info['seed']).zfill(3)}" in path)]
 
 if __name__ == "__main__":
     from src.utils import parse_arguments, load_config, filter_config
