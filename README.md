@@ -11,8 +11,6 @@ LensingSSC is a Python package for studying **Super-Sample Covariance (SSC)** ef
 - [Project Structure](#project-structure)
 - [Statistical Quantities](#statistical-quantities)
 - [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Installing the Package](#installing-the-package)
 - [Usage](#usage)
 - [Results & Analysis](#results--analysis)
 - [Contributing](#contributing)
@@ -82,7 +80,7 @@ lensing-ssc/
 └── .gitignore            # Git ignore rules
 ```
 
-*Each directory is organized to separate the core functionalities, examples, tests, and documentation.*
+*Each directory is organized to separate core functionalities, examples, tests, and documentation.*
 
 ---
 
@@ -106,30 +104,73 @@ LensingSSC calculates various statistical quantities on weak lensing maps, inclu
 
 ## Installation
 
-### Prerequisites
+For complete installation details, please refer to [installation.md](installation.md).
 
-1. **Install `nbodykit`:**
-   ```sh
-   conda install -c bccp nbodykit
-   ```
-2. **Install CLASS via Cobaya:**
-   ```sh
-   python -m pip install cobaya --upgrade
-   mkdir ./lib
-   cobaya-install cosmo -p ./lib
-   ```
+<details>
+  <summary><strong>Installation Instructions (Click to expand)</strong></summary>
 
-### Installing the Package
+  ### Prerequisites
 
-1. **Clone the repository:**
-   ```sh
-   git clone https://github.com/atokiwaipmu/LensingSSC.git
-   cd LensingSSC
-   ```
-2. **Install the package:**
-   ```sh
-   python setup.py install
-   ```
+  - **Python 3.8.19**  
+    Download from the [official Python website](https://www.python.org/downloads/release/python-3819/) and verify with:
+    ```sh
+    python --version
+    ```
+    The output should be `Python 3.8.x`.
+
+  ### Create a Conda Environment
+
+  ```sh
+  conda create -n lensingssc python=3.8
+  conda activate lensingssc
+  ```
+
+  ### Installing Dependencies
+
+  **Using Conda:**
+
+  1. Install `nbodykit`:
+     ```sh
+     conda install -c bccp nbodykit
+     ```
+  2. Install additional packages:
+     ```sh
+     conda install numpy healpy matplotlib astropy scipy h5py pyyaml pandas
+     ```
+
+  **Using Pip:**
+
+  1. Install Lenstools, Classy, and Cobaya:
+     ```sh
+     pip install lenstools classy cobaya
+     ```
+  2. Install CLASS via Cobaya:
+     ```sh
+     pip install cobaya --upgrade
+     mkdir ./lib
+     cobaya-install cosmo -p ./lib
+     ```
+
+  ### Installing LensingSSC
+
+  1. **Clone the repository:**
+     ```sh
+     git clone https://github.com/atokiwaipmu/LensingSSC.git
+     cd LensingSSC
+     ```
+  2. **Install the package:**
+     ```sh
+     python setup.py install
+     ```
+
+  ### Verification
+
+  Confirm installation with:
+  ```sh
+  python -c "import lensing_ssc; print('LensingSSC installed successfully')"
+  ```
+
+</details>
 
 ---
 
