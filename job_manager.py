@@ -1,6 +1,6 @@
 from typing import Dict
 from src.job_generator import JobGenerator
-from src.utils import find_data_dirs
+from src.utils.io import PathHandler
 
 def run_job(
     module_name: str,
@@ -22,7 +22,7 @@ def run_job(
     - if_omp (bool): Whether to use OpenMP.
     - if_submit (bool): Whether to submit the job after generation.
     """
-    data_dirs = find_data_dirs()
+    data_dirs = PathHandler().find_data_dirs()
     for datadir in data_dirs:
         job_generator = JobGenerator(datadir, queue=queue, ppn=ppn)
         job_generator.gen_script(
@@ -72,7 +72,7 @@ if __name__ == "__main__":
             "if_submit": True,
         },
         "patch": {
-            "module_name": "src.patch_generator",
+            "module_name": "src.core.patch.patch_generator",
             "script_name": "patchgen",
             "queue": "mini",
             "ppn": 52,

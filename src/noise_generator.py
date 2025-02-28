@@ -155,8 +155,8 @@ class NoiseGenerator:
  
 
 if __name__ == "__main__":
-    from src.utils import parse_arguments, load_config, filter_config
-    from src.info_extractor import InfoExtractor
+    from core.utils import parse_arguments, load_config, filter_config
+    from core.info_extractor import InfoExtractor
     from pathlib import Path
 
     logging.basicConfig(level=logging.DEBUG)

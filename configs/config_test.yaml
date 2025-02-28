@@ -1,0 +1,35 @@
+workdir: /lustre/work/akira.tokiwa/Projects/LensingSSC 
+npatch: 273
+patch_size: 5
+patch_size_deg: 5
+xsize: 1024
+nbin: 15
+lmin: 300
+lmax: 3000
+nside: 8192
+ngal: 30
+epsilon: 0.26
+scale_angle: 2
+opening_angle: 5
+zs_list:
+  - 0.5
+  - 1.0
+  - 1.5
+  - 2.0
+  - 2.5
+ngal_list:
+  - 0
+  - 7
+  - 15
+  - 30
+  - 50
+sl_list:
+  - 2
+  - 5
+  - 8
+  - 10
+oa_list:
+  - 5 
+  - 10
+  - 15
+  - 20

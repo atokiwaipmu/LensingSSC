@@ -2,12 +2,12 @@
 
 import subprocess
 from dataclasses import dataclass, field
-from src.info_extractor import InfoExtractor
+from src.utils.info_extractor import InfoExtractor
 
 @dataclass
 class JobGenerator:
     datadir: str
-    config_file: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_default.yaml"
+    config_file: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/configs/config_test.yaml"
     workdir: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/"
     user: str = "akira.tokiwa"
     env_name: str = "lssc"

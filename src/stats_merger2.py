@@ -5,8 +5,8 @@ import numpy as np
 import healpy as hp
 import logging
 
-from src.utils import find_data_dirs, separate_dirs
-from src.info_extractor import InfoExtractor
+from core.utils import find_data_dirs, separate_dirs
+from core.info_extractor import InfoExtractor
 
 class StatsMerger:
     def __init__(self, data_dirs, sl, ngal, opening_angle=10, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], save_dir="/lustre/work/akira.tokiwa/Projects/LensingSSC/output", overwrite=False):

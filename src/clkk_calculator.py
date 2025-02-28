@@ -66,7 +66,7 @@ def process_datadir(datadir: Path, lmax: int = 3000, overwrite: bool = False) ->
     #    process_map(noisy_path, clkk_dir, lmax, overwrite)
 
 if __name__ == "__main__":
-    from src.utils import parse_arguments, load_config, setup_logging
+    from core.utils import parse_arguments, load_config, setup_logging
     setup_logging()
     args = parse_arguments()
     config = load_config(args.config_file)

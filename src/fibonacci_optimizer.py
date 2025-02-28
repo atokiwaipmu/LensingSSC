@@ -3,7 +3,7 @@ import numpy as np
 import healpy as hp
 import matplotlib.pyplot as plt
 
-from src.fibonacci_helper import FibonacciHelper, SphereRotator
+from src.utils.fibonacci_helper import FibonacciHelper, SphereRotator
 
 class FibonacciOptimizer:
     """Optimizes the number of patches for a given healpix map.
@@ -24,44 +24,74 @@ class FibonacciOptimizer:
         self.N_opt = None
 
     def optimize(self, verbose=False):
-        """Optimizes the patch count.
-
-        Args:
-            verbose (bool): Whether to print progress messages.
+        """
+        Optimizes the patch count using a binary search approach.
 
         Returns:
-            int: The optimal number of patches.
+            int: The optimal number of patches (N_opt).
         """
+        # 1. Define search bounds
+        low = 1
+        high = self.Ninit
+        best_feasible = 0
 
-        N = self.Ninit
-        Nstep = self.Nstepinit
-
-        while Nstep > 0:
+        # 2. Binary search
+        while low <= high:
+            mid = (low + high) // 2
             if verbose:
-                print("Testing N =", N)
+                print(f"Testing feasibility for N={mid} ...")
 
-            points = FibonacciHelper.fibonacci_grid_on_sphere(N)
-            valid_points = points[(points[:, 0] < np.pi - self.radius) & (points[:, 0] > self.radius)]
-
-            counts = np.zeros(hp.nside2npix(self.nside))
-            for center in valid_points:
-                vertices = self.rotated_vertices(center)
-                vecs = hp.ang2vec(vertices[:, 0], vertices[:, 1])
-                ipix = hp.query_polygon(nside=self.nside, vertices=vecs, nest=True)
-                counts[ipix] += 1
-
-                if np.any(counts[ipix] > 1):
-                    N -= Nstep
-                    break
-
-            if np.all(counts[ipix] <= 1):
-                N += Nstep
-                Nstep = Nstep // 2
+            if self.is_feasible(mid):
+                # If mid is feasible, record it and try bigger
+                best_feasible = mid
+                low = mid + 1
                 if verbose:
-                    print("Restarting from N =", N, "with Nstep =", Nstep)
+                    print(f"N={mid} is feasible, trying larger.")
+            else:
+                # If mid is not feasible, try smaller
+                high = mid - 1
+                if verbose:
+                    print(f"N={mid} is not feasible, trying smaller.")
 
-        self.N_opt = N - 1
-        return N - 1
+        # 3. Save and return best feasible solution
+        self.N_opt = best_feasible
+        return best_feasible
+    
+    def is_feasible(self, N):
+        """
+        Returns True if we can place patches at N points without overlap.
+        False otherwise.
+        """
+        # 1) Generate N points on sphere
+        points = FibonacciHelper.fibonacci_grid_on_sphere(N)
+
+        # 2) Filter points by radius constraints
+        #    (assuming points[:, 0] is theta, the polar angle)
+        valid_points = points[
+            (points[:, 0] < np.pi - self.radius) & (points[:, 0] > self.radius)
+        ]
+
+        # 3) Build counts array for each pixel
+        counts = np.zeros(hp.nside2npix(self.nside), dtype=int)
+
+        for center in valid_points:
+            # 3a) Rotate patch corners relative to this center
+            vertices = self.rotated_vertices(center)
+
+            # 3b) Convert (theta, phi) vertices to unit vectors
+            vecs = hp.ang2vec(vertices[:, 0], vertices[:, 1])
+
+            # 3c) Query all pixels in polygon
+            ipix = hp.query_polygon(nside=self.nside, vertices=vecs, nest=True)
+
+            # 3d) Increment coverage count
+            counts[ipix] += 1
+
+            # 3e) Early break if overlap
+            if np.any(counts[ipix] > 1):
+                return False
+
+        return True
 
     def rotated_vertices(self, center):
         """Rotates the vertices of a patch.

@@ -106,7 +106,7 @@ def main(savedir=None, lmax=3000, zs_list=[0.5, 1.0, 1.5, 2.0, 2.5], overwrite=F
         logging.info(f"Saved Clkk values to {fn_out}")
 
 if __name__ == '__main__':
-    from src.utils import setup_logging, load_config, filter_config
+    from core.utils import setup_logging, load_config, filter_config
     parser = argparse.ArgumentParser(description='Compute weak lensing convergence maps')
     parser.add_argument("--output", type=str, default="/lustre/work/akira.tokiwa/Projects/LensingSSC/data/halofit",help="Output directory to save convergence maps")
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing files')
