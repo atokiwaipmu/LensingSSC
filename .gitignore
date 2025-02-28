@@ -168,3 +168,5 @@ results/
 src/LEGACY/
 src/extra/
 output/
+LEGACY/
+.vscode/
