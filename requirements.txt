@@ -1,10 +1,12 @@
 numpy
-pyyaml
 healpy
 matplotlib
-classy
-lenstools
 astropy
-nbodykit
-pandas
+lenstools
 scipy
+h5py
+pyyaml
+classy
+pandas
+nbodykit
+cobaya

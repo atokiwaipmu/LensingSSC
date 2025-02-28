@@ -1,30 +1,38 @@
 from setuptools import setup, find_packages
+import os
+
+# Read the README file for a long description.
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
 
 setup(
-    name='lensingSSC',
-    version='0.1',
-    description='A package for analysing lensing simulations',
-    author='Akira Tokiwa',
-    author_email='akira.tokiwa@ipmu.jp',
+    name="LensingSSC",
+    version="0.1.0",
+    author="Your Name",
+    author_email="your.email@example.com",
+    description="A Python package for studying Super-Sample Covariance (SSC) effects in weak gravitational lensing simulations.",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/atokiwaipmu/LensingSSC",
     packages=find_packages(),
-    install_requires=[
-        'numpy',
-        'pyyaml',
-        'healpy',
-        'matplotlib',
-        'classy',
-        'lenstools',
-        'astropy',
-        'nbodykit',
-        'pandas',
-        'scipy',
+    classifiers=[
+        "Programming Language :: Python :: 3.8",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
     ],
-    python_requires='>=3.6',
+    python_requires=">=3.8",
+    install_requires=[
+        "numpy",
+        "healpy",
+        "matplotlib",
+        "astropy",
+        "lenstools",
+        "scipy",
+        "h5py",
+        "pyyaml",
+        "classy",
+        "pandas",
+        "cobaya",
+    ],
+    include_package_data=True,
 )
-
-# Installation instructions
-
-# To use this `setup.py`, save it in the root directory of your project.
-# To install your package, run the following command in your terminal:
-#
-#   pip install .
