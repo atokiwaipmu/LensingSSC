@@ -174,6 +174,38 @@ For complete installation details, please refer to [installation.md](installatio
 
 ---
 
+## Data Download
+
+Before running the analysis, you need to download the required data files. The data is publicly available and can be accessed from multiple sources.
+
+<details>
+  <summary><strong>Data Download Instructions (Click to expand)</strong></summary>
+
+  The data is available from [HalfDome Simulations Data](https://halfdomesims.github.io/data/). You can download the files as follows:
+  
+  - **Globus Download:**  
+    The data is publicly available on Globus. Follow the instructions on the website for a direct download.
+  
+  - **NERSC Community File Storage (CFS):**  
+    The data is also hosted on the NERSC CFS system in the CMB project directory at:
+    ```
+    /global/cfs/cdirs/cmb/data/halfdome/
+    ```
+  
+  Additional details:
+  - **Description:**  
+    For a full description of the data, see the enclosed `README.txt` provided with the data.
+  
+  - **Example Usage:**  
+    For an example of reading the data, refer to the notebook `Halfdome_analysis.ipynb` included with the download.
+  
+  - **Future Updates:**  
+    Further examples, notebooks, and additional data will be added soon!
+  
+</details>
+
+---
+
 ## Usage
 
 ### Generating Data
