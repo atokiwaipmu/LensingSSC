@@ -1,5 +1,6 @@
 import numpy as np
 from lenstools import ConvergenceMap
+from astropy import units as u
 
 
 def exclude_edges(heights: np.ndarray, positions: np.ndarray, 
@@ -57,7 +58,7 @@ def compute_peak_statistics(snr_map: ConvergenceMap, bins: np.ndarray,
     """
     if is_minima:
         # Invert the map for minima computation
-        snr_map = ConvergenceMap(-snr_map.data, angle=patch_size)
+        snr_map = ConvergenceMap(-snr_map.data, angle=patch_size * u.deg)
 
     height, positions = snr_map.locatePeaks(bins)
     height, positions = exclude_edges(height, positions, patch_size, xsize)

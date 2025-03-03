@@ -79,9 +79,19 @@ class PatchSmoother:
         self.overwrite: bool = overwrite
 
         self.data_paths: List[Path] = sorted(self.data_dir.glob("patch_kappa/*.npy"))
-        self.output_dir: Path = self.data_dir / "patch_snr"
+        self.output_dir: Path = self.data_dir / "smoothed"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.num_workers: int = num_workers or mp.cpu_count()
+
+    def dir_initialize(self) -> None:
+        """
+        Create necessary output subdirectories for each redshift and box type.
+        """
+        for zs in self.zs_list:
+            for box_type in ["bigbox", "tiled"]:
+                output_subdir: Path = self.output_dir / box_type / f"zs{zs}"
+                output_subdir.mkdir(parents=True, exist_ok=True)
+                logging.info(f"Created directory {output_subdir}")
 
     def run(self) -> None:
         """

@@ -31,9 +31,13 @@ def main():
     save_dir = output_base_dir / args.box_type / "stats"
     logging.info(f"Starting processing for box_type={args.box_type}, saving to {save_dir}")
     save_dir.mkdir(parents=True, exist_ok=True)
-        
+
     # Find all patch files
-    patches_kappa_paths = glob.glob(str(data_dir / args.box_type / f"zs{args.zs}/*.npy"))
+    # Format zs value properly to match directory structure
+    zs_str = f"{args.zs:.1f}".rstrip('0').rstrip('.') if args.zs == int(args.zs) else f"{args.zs:.1f}"
+    search_path = str(data_dir / args.box_type / f"zs{zs_str}" / "noiseless" / "*.npy")
+    patches_kappa_paths = glob.glob(search_path)
+    logging.info(f"Searching in path: {search_path}")
     logging.info(f"Found {len(patches_kappa_paths)} files for zs={args.zs} in box_type={args.box_type}")
     
     if not patches_kappa_paths:
