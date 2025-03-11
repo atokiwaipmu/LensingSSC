@@ -18,7 +18,7 @@ def plot_coverage_map(coverage_map: np.ndarray, title: str, subplot: tuple, rot:
         rot (tuple, optional): The rotation angles of the view, default is (0, 0, 0).
     """
     hp.orthview(coverage_map, nest=True, half_sky=True, title=title,
-                sub=subplot, rot=rot, cbar=False)
+                sub=subplot, rot=rot, cmap='viridis', cbar=False)
     hp.graticule()
 
 def plot_fibonacci_grid(optimizer: PatchOptimizer, n: int = None):

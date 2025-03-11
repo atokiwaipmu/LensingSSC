@@ -128,6 +128,7 @@ class PatchAnalyzer:
     
     def _process_kappa(self, patch_pixels, ngal):
         """Process a single kappa patch with given noise level"""
+        logging.info(f"Processing kappa patch with ngal={ngal}")
         if ngal == 0:
             pixels = patch_pixels
         else:
@@ -143,6 +144,7 @@ class PatchAnalyzer:
 
     def _process_snr(self, patch_pixels, ngal, sl):
         """Process a single patch with given noise level and smoothing length"""
+        logging.info(f"Processing snr patch with ngal={ngal}, sl={sl}")
         if ngal == 0:
             pixels = patch_pixels
         else:
@@ -188,7 +190,7 @@ class PatchAnalyzer:
         all_results = {}
         for input_path in input_paths:
             logging.info(f"Processing {input_path}")
-            patches = np.load(input_path)
+            patches = np.load(input_path, mmap_mode='r')
             results = self.process_patches(patches)
             file_key = Path(input_path).stem
             all_results[file_key] = results

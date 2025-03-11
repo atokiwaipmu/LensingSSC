@@ -78,7 +78,7 @@ class FibonacciGrid:
     
     @staticmethod
     def load_or_generate_points(patch_size: float, n_opt: int, 
-                                data_dir: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/src/core/fibonacci/center_points/") -> np.ndarray:
+                                data_dir: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/lensing_ssc/core/fibonacci/center_points/") -> np.ndarray:
         """
         Load or generate Fibonacci grid points.
 

@@ -2,11 +2,12 @@ import argparse
 import logging
 import glob
 from pathlib import Path
+import sys
 
 import numpy as np
 
 from lensing_ssc.core.patch.statistics.analyzer import PatchAnalyzer
-from lensing_ssc.utils.io import save_results_to_hdf5
+from lensing_ssc.utils.io import save_results_to_hdf5, load_results_from_hdf5
 
 
 def main():
@@ -34,7 +35,7 @@ def main():
 
     # Find all patch files
     # Format zs value properly to match directory structure
-    zs_str = f"{args.zs:.1f}".rstrip('0').rstrip('.') if args.zs == int(args.zs) else f"{args.zs:.1f}"
+    zs_str = f"{args.zs:.1f}"
     search_path = str(data_dir / args.box_type / f"zs{zs_str}" / "noiseless" / "*.npy")
     patches_kappa_paths = glob.glob(search_path)
     logging.info(f"Searching in path: {search_path}")
@@ -61,7 +62,6 @@ def main():
         logging.info(f"Saving results to {save_path}")
         # メタデータも一緒に保存するように修正
         save_results_to_hdf5(results, save_path, analyzer=patch_analyzer)
-
 
 if __name__ == "__main__":
     main()
