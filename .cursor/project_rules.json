@@ -1,0 +1,67 @@
+{
+  "dependencies": {
+    "python": {
+      "packages": [
+        "numpy",
+        "healpy",
+        "matplotlib",
+        "astropy",
+        "lenstools",
+        "scipy",
+        "h5py",
+        "pyyaml",
+        "classy",
+        "pandas",
+        "cobaya"
+      ],
+      "version": ">=3.8"
+    }
+  },
+  "formatter": {
+    "indentSize": 4,
+    "lineWidth": 88
+  },
+  "linter": {
+    "rules": {
+      "complexity": "warning",
+      "correctness": "error",
+      "security": "error",
+      "performance": "warning",
+      "style": "info",
+      "maintainability": "warning"
+    }
+  },
+  "ignore": [
+    "__pycache__",
+    "*.py[cod]",
+    "*$py.class",
+    "*.so",
+    "build/",
+    "dist/",
+    "*.egg-info/",
+    "*.egg",
+    ".coverage",
+    ".pytest_cache/",
+    ".ipynb_checkpoints",
+    "data/",
+    "job/",
+    "jobs/",
+    "log/",
+    "references/",
+    "results/",
+    "LEGACY/",
+    "output/LEGACY/"
+  ],
+  "rootDir": ".",
+  "defaultLang": "python",
+  "styleGuide": {
+    "python": {
+      "indentStyle": "space",
+      "spacesPerIndent": 4,
+      "docstringConvention": "google",
+      "maxLineLength": 88
+    }
+  },
+  "testCommand": "python -m pytest",
+  "runCommand": "python -m lensing_ssc"
+}
