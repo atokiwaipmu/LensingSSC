@@ -34,4 +34,4 @@ class BoxSizes:
     Valid sets of box sizes for distinguishing 'bigbox' from 'tiled'.
     """
     BIG_BOX: Set[int] = frozenset({3750, 5000})
-    SMALL_BOX: Set[int] = frozenset({625})
+    SMALL_BOX: Set[int] = frozenset({625}) 

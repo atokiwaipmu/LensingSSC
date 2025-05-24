@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import Optional, Dict, Union, Callable, Any
 
-from lensing_ssc.utils.constants import PathPatterns, BoxSizes
+from lensing_ssc.utils.constants import PathPatterns, BoxSizes # Updated import
 
 class InfoExtractor:
     """
@@ -91,4 +91,4 @@ class InfoExtractor:
         if 'noiseless' in path.lower():
             logging.debug(f"'noiseless' found in path: {path}. Setting ngal to 0.")
             return 0
-        return cls._extract_value(PathPatterns.NOISE, path, int, "ngal", default=0)
+        return cls._extract_value(PathPatterns.NOISE, path, int, "ngal", default=0) 

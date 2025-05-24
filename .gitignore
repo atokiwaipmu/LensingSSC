@@ -170,5 +170,5 @@ src/extra/
 output/LEGACY/
 LEGACY/
 .vscode/
-
+lensing_ssc/legacy_*/
 

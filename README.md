@@ -52,32 +52,68 @@ This package is ideal for researchers and practitioners working with large-scale
 ## Project Structure
 
 ```plaintext
-lensing-ssc/
-├── LICENSE               # MIT License
-├── README.md             # Main documentation
-├── setup.py              # Package installation script
-├── requirements.txt      # Python dependencies
-├── docs/                 # Documentation files
-│   ├── installation.md   # Detailed installation guide
-│   ├── usage.md          # Usage instructions
-│   └── api/              # API documentation
-├── examples/             # Example notebooks and scripts
-│   ├── notebooks/        # Jupyter notebooks
-│   └── scripts/          # Example scripts
-├── tests/                # Unit tests
+LensingSSC/
+├── .gitignore
+├── LICENSE
+├── README.md             # (Should be updated to reflect this new structure)
+├── requirements.txt
+├── setup.py              # Configured to recognize `lensing_ssc` as the main package
+│
+├── configs/              # YAML configuration files (e.g., default.yaml)
+│
+├── data/                 # (Typically Gitignored) All project-specific data
+│   ├── raw/              # Downloaded/original simulation data (e.g., usmesh files)
+│   ├── interim/          # Intermediate data products (e.g., mass_sheets/)
+│   └── processed/        # Data ready for analysis (e.g., kappa_maps/)
+│
+├── docs/                 # Project documentation
+│   ├── installation.md
+│   ├── usage.md          # (Should be updated with new script commands)
+│   └── api/
+│
+├── notebooks/            # Jupyter notebooks for exploration, examples, paper figures
+│
+├── results/              # Output from analyses and scripts
+│   ├── figures/          # Generated plots and figures
+│   ├── tables/           # Generated tables (e.g., CSV, LaTeX)
+│   └── stats_data/       # Numerical statistical results (e.g., power spectra data files)
+│
+├── scripts/              # Main executable scripts for running the pipeline stages
+│   ├── 01_run_preprocessing.py    # Handles mass sheet generation
+│   ├── 02_run_kappa_generation.py # Handles kappa map generation
+│   ├── 03_run_analysis.py         # Runs statistical analyses on kappa maps
+│   └── 04_visualize_results.py    # Generates plots/tables from statistical results
+│
+├── lensing_ssc/          # Main Python package source code
 │   ├── __init__.py
-│   └── test_*.py         # Test modules
-├── lensing_ssc/          # Main package source code
-│   ├── __init__.py
-│   ├── core/             # Core functionality
-│   │   ├── preprocessing/
-│   │   ├── patch/
-│   │   └── fibonacci/
-│   ├── stats/            # Statistical analysis modules
-│   └── utils/            # Utility functions
-├── configs/              # YAML configuration files
-│   └── default.yaml
-└── .gitignore            # Git ignore rules
+│   ├── core/             # Core algorithms (data manipulation, patching)
+│   │   ├── __init__.py
+│   │   ├── preprocessing_utils.py
+│   │   └── patching_utils.py
+│   ├── stats/            # Statistical measurement modules
+│   │   ├── __init__.py
+│   │   ├── power_spectrum.py
+│   │   ├── bispectrum.py
+│   │   ├── pdf.py
+│   │   └── peak_counts.py
+│   ├── theory/           # Theoretical models and calculations
+│   │   ├── __init__.py
+│   │   └── ssc_model.py (example)
+│   ├── io/               # Data loading and saving utilities
+│   │   ├── __init__.py
+│   │   └── file_handlers.py
+│   ├── plotting/         # Reusable plotting functions
+│   │   ├── __init__.py
+│   │   └── plot_utils.py
+│   └── utils/            # General helper functions
+│       ├── __init__.py
+│       └── (e.g., healpix_helpers.py, config_loader.py)
+│
+└── tests/                # Unit and integration tests
+    ├── __init__.py
+    ├── test_core.py
+    ├── test_stats.py
+    └── (other test_*.py files)
 ```
 
 *Each directory is organized to separate core functionalities, examples, tests, and documentation.*
