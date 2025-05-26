@@ -403,29 +403,27 @@ class MassSheetProcessor:
 
     def _save_checkpoint_entry(self, completed_sheets_list: List[int]) -> None:
         """Save processing checkpoint for this processor's task."""
-        current_checkpoint_data = self.checkpoint_manager.load_checkpoint() or {}
+        checkpoint_data = self.checkpoint_manager.load_checkpoint()
+        if not checkpoint_data:
+            checkpoint_data = {}
         
-        entry_data = {
-            "completed_sheets": completed_sheets_list,
-            "timestamp": time.time(),
-            "config": asdict(self.config),
-            "total_sheets": len(self.indices_df)
+        # Store under the unique key
+        checkpoint_data[self.checkpoint_key] = {
+            'completed_sheets': completed_sheets_list,
+            'last_updated': time.time()
         }
-        current_checkpoint_data[self.checkpoint_key] = entry_data
-        
-        # The `completed_sheets` argument for save_checkpoint might be for the primary calling context
-        # if CheckpointManager is to be generic. For now, we pass this task's list.
-        # The `metadata` field is used to store the whole multi-key dictionary.
-        self.checkpoint_manager.save_checkpoint(
-            completed_sheets=completed_sheets_list, 
-            metadata=current_checkpoint_data
-        )
-        logging.debug(f"Saved checkpoint for {self.checkpoint_key} with {len(completed_sheets_list)} completed sheets")
+        self.checkpoint_manager.save_checkpoint(checkpoint_data)
+        logging.info(f"Checkpoint saved for {len(completed_sheets_list)} completed sheets.")
 
     def _cleanup_memory(self) -> None:
-        """Clean up memory caches."""
-        self.data_access.cleanup_cache()
-        gc.collect()
+        """Cleanup memory by clearing caches and running garbage collection."""
+        if hasattr(self, 'data_access') and hasattr(self.data_access, 'cleanup_cache'):
+            logging.debug("Cleaning up data_access cache...")
+            self.data_access.cleanup_cache() # Explicitly call data_access cache cleanup
+        
+        logging.debug("Running garbage collection...")
+        gc.collect() # General garbage collection
+        logging.debug("Memory cleanup complete.")
 
     def _generate_summary(self, results: List[ProcessingResult], previously_completed: int) -> Dict[str, any]:
         """Generate processing summary."""
