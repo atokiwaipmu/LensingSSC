@@ -1,0 +1,12 @@
+pytest
+cachetools
+
+# Potentially optional or specific-use-case packages (review if needed for core):
+# pyyaml
+# classy
+# cobaya
+
+# Other development/testing specific packages here, e.g.:
+# flake8
+# black
+# mypy 

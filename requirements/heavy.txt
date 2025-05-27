@@ -1,0 +1,12 @@
+# Heavy astronomical packages
+healpy>=1.15.0
+lenstools>=1.0.0
+nbodykit>=0.3.0
+
+# Cosmological codes
+classy>=3.0.0
+cobaya>=3.0.0
+
+# Additional scientific packages
+camb>=1.3.0
+ccl>=2.0.0
