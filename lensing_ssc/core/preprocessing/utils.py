@@ -1,4 +1,6 @@
-# lensing_ssc/core/utils.py
+# ====================
+# lensing_ssc/core/preprocessing/utils.py  
+# ====================
 import gc
 import json
 import time
@@ -6,10 +8,8 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import asdict
 import numpy as np
 from tqdm import tqdm
-from cachetools import TTLCache
 
 
 class ProgressTracker:
@@ -81,39 +81,6 @@ class PerformanceMonitor:
                         f"avg={stats['mean']:.3f}s, total={stats['total']:.3f}s")
 
 
-class MemoryManager:
-    """Manage memory usage and cleanup."""
-    
-    def __init__(self, cache_size_mb: int = 1024):
-        self.cache_size_mb = cache_size_mb
-        self.cached_chunks = TTLCache(maxsize=100, ttl=3600)  # 1 hour TTL
-        
-    def cleanup_memory(self):
-        """Clean up cached data and force garbage collection."""
-        self.cached_chunks.clear()
-        gc.collect()
-        
-    def get_memory_usage_mb(self) -> float:
-        """Get current memory usage estimate in MB."""
-        import psutil
-        process = psutil.Process()
-        return process.memory_info().rss / 1024 / 1024
-        
-    @contextmanager
-    def memory_limit_context(self, max_memory_mb: int = None):
-        """Context manager to monitor memory usage."""
-        max_memory_mb = max_memory_mb or self.cache_size_mb * 2
-        initial_memory = self.get_memory_usage_mb()
-        
-        try:
-            yield
-        finally:
-            current_memory = self.get_memory_usage_mb()
-            if current_memory - initial_memory > max_memory_mb:
-                logging.warning(f"Memory usage increased by {current_memory - initial_memory:.1f}MB")
-                self.cleanup_memory()
-
-
 class CheckpointManager:
     """Manage processing checkpoints for recovery."""
     
@@ -121,15 +88,11 @@ class CheckpointManager:
         self.datadir = Path(datadir)
         self.checkpoint_file = self.datadir / "processing_checkpoint.json"
         
-    def save_checkpoint(self, completed_sheets: List[int], 
-                       failed_sheets: List[int] = None,
-                       metadata: Dict[str, Any] = None):
-        """Save processing state for recovery."""
+    def save_checkpoint(self, data: Dict[str, Any]):
+        """Save checkpoint data."""
         checkpoint = {
-            "completed_sheets": completed_sheets,
-            "failed_sheets": failed_sheets or [],
-            "timestamp": time.time(),
-            "metadata": metadata or {}
+            "data": data,
+            "timestamp": time.time()
         }
         
         # Ensure directory exists
@@ -141,37 +104,22 @@ class CheckpointManager:
             json.dump(checkpoint, f, indent=2)
         temp_file.rename(self.checkpoint_file)
         
-        logging.info(f"Checkpoint saved: {len(completed_sheets)} completed, "
-                    f"{len(failed_sheets or [])} failed")
-        
     def load_checkpoint(self) -> Optional[Dict]:
-        """Load previous processing state."""
+        """Load previous checkpoint data."""
         if self.checkpoint_file.exists():
             try:
                 with open(self.checkpoint_file, 'r') as f:
                     checkpoint = json.load(f)
-                logging.info(f"Loaded checkpoint: {len(checkpoint.get('completed_sheets', []))} "
-                           f"completed sheets")
-                return checkpoint
+                return checkpoint.get('data', {})
             except (json.JSONDecodeError, KeyError) as e:
                 logging.warning(f"Failed to load checkpoint: {e}")
-        return None
+        return {}
         
     def clear_checkpoint(self):
         """Remove checkpoint file."""
         if self.checkpoint_file.exists():
             self.checkpoint_file.unlink()
             logging.info("Checkpoint cleared")
-
-
-def extract_seed_from_path(path: Path) -> int:
-    """Extract seed number from dataset path."""
-    import re
-    path_str = str(path)
-    seed_match = re.search(r's(\d+)', path_str)
-    if seed_match:
-        return int(seed_match.group(1))
-    return 0
 
 
 def setup_logging(log_level: str = "INFO", log_file: Optional[Path] = None):
@@ -201,15 +149,6 @@ def setup_logging(log_level: str = "INFO", log_file: Optional[Path] = None):
     logging.getLogger('numba').setLevel(logging.WARNING)
 
 
-def format_memory_size(size_bytes: int) -> str:
-    """Format memory size in human readable format."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
-
-
 def format_duration(seconds: float) -> str:
     """Format duration in human readable format."""
     if seconds < 60:
@@ -220,48 +159,3 @@ def format_duration(seconds: float) -> str:
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
         return f"{hours:.0f}h {minutes:.0f}m"
-
-
-class BatchProcessor:
-    """Process items in batches with error handling."""
-    
-    def __init__(self, batch_size: int = 10, max_retries: int = 3):
-        self.batch_size = batch_size
-        self.max_retries = max_retries
-        
-    def process_batches(self, items: List[Any], process_func, 
-                       progress_desc: str = "Processing") -> Tuple[List[Any], List[Any]]:
-        """Process items in batches with retry logic."""
-        successful = []
-        failed = []
-        
-        batches = [items[i:i + self.batch_size] 
-                  for i in range(0, len(items), self.batch_size)]
-        
-        with ProgressTracker(len(batches), progress_desc, "batch") as pbar:
-            for batch in batches:
-                batch_success, batch_failed = self._process_batch_with_retry(
-                    batch, process_func
-                )
-                successful.extend(batch_success)
-                failed.extend(batch_failed)
-                
-                pbar.update(1, f"Success: {len(successful)}, Failed: {len(failed)}")
-                
-        return successful, failed
-        
-    def _process_batch_with_retry(self, batch: List[Any], process_func) -> Tuple[List[Any], List[Any]]:
-        """Process a single batch with retry logic."""
-        for attempt in range(self.max_retries + 1):
-            try:
-                results = process_func(batch)
-                return results, []
-            except Exception as e:
-                if attempt == self.max_retries:
-                    logging.error(f"Batch failed after {self.max_retries} retries: {e}")
-                    return [], batch
-                else:
-                    logging.warning(f"Batch attempt {attempt + 1} failed: {e}, retrying...")
-                    time.sleep(2 ** attempt)  # Exponential backoff
-        
-        return [], batch

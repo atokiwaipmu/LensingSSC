@@ -2,110 +2,125 @@
 import argparse
 import logging
 from pathlib import Path
-import json # For parsing list of floats
+import json
 
-from lensing_ssc.core.preprocessing_utils import KappaConstructor, MassSheetProcessor # MassSheetProcessor to get usmesh_attrs
+from lensing_ssc.core.preprocessing.kappa import KappaConstructor
+
 
 def main():
-    """Main function to run the kappa map generation pipeline."""
-    parser = argparse.ArgumentParser(description="Run kappa map generation from mass sheets.")
+    """Main function to run kappa map generation."""
+    parser = argparse.ArgumentParser(description="Generate kappa maps from mass sheets.")
     parser.add_argument(
-        "basedir",
+        "mass_sheet_dir",
         type=str,
-        help="Base directory containing the 'mass_sheets' subdirectory and where 'kappa_maps' will be created."
+        help="Directory containing delta-sheet-*.fits files"
     )
     parser.add_argument(
-        "--zs_list",
+        "--output-dir",
+        type=str,
+        help="Output directory for kappa maps (default: mass_sheet_dir/../kappa_maps)"
+    )
+    parser.add_argument(
+        "--zs-list",
         type=str,
         default="[0.5, 1.0, 1.5, 2.0, 2.5]",
-        help='JSON string of a list of source redshifts (e.g., "[0.5, 1.0, 2.0]").'
+        help='Source redshifts as JSON list'
     )
     parser.add_argument(
         "--nside",
         type=int,
         default=8192,
-        help="NSIDE parameter for the output Healpix kappa maps (default: 8192)."
+        help="NSIDE for output maps"
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Overwrite existing kappa map files. Defaults to False."
+        help="Overwrite existing files"
     )
     parser.add_argument(
-        "--num_workers",
+        "--num-workers",
         type=int,
-        default=None,
-        help="Number of parallel workers for processing delta sheets (default: all available CPUs)."
+        help="Number of parallel workers"
     )
     parser.add_argument(
         "--log-level",
-        type=str,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Set the logging level (default: INFO)."
+        help="Logging level"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show plan without processing"
     )
 
     args = parser.parse_args()
 
-    # Configure logging
-    logging.basicConfig(level=args.log_level.upper(), 
-                        format='%(asctime)s - %(levelname)s - %(module)s - %(message)s')
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
 
-    base_directory = Path(args.basedir)
-    mass_sheet_directory = base_directory / "mass_sheets"
-    kappa_output_directory = base_directory / "kappa_maps" # Changed from "kappa" to "kappa_maps" for clarity
+    mass_sheet_dir = Path(args.mass_sheet_dir)
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = mass_sheet_dir.parent / "kappa_maps"
 
-    if not mass_sheet_directory.exists():
-        logging.error(f"Mass sheet directory '{mass_sheet_directory}' not found. Please run 01_run_preprocessing.py first or provide a valid path.")
+    if not mass_sheet_dir.exists():
+        logging.error(f"Mass sheet directory not found: {mass_sheet_dir}")
         return
 
     try:
         zs_list = json.loads(args.zs_list)
-        if not isinstance(zs_list, list) or not all(isinstance(zs, (float, int)) for zs in zs_list):
-            raise ValueError("zs_list must be a list of numbers.")
-    except (json.JSONDecodeError, ValueError) as e:
-        logging.error(f"Invalid format for --zs_list. Expected a JSON list of numbers (e.g., \"[0.5, 1.0]\"). Error: {e}")
+    except json.JSONDecodeError:
+        logging.error("Invalid zs-list format. Use JSON like '[0.5, 1.0]'")
         return
 
-    logging.info(f"Starting kappa map generation from mass sheets in: {mass_sheet_directory}")
-    logging.info(f"Output directory for kappa maps: {kappa_output_directory}")
-    logging.info(f"Source redshifts (zs_list): {zs_list}")
-    logging.info(f"NSIDE for kappa maps: {args.nside}")
-    logging.info(f"Overwrite existing files: {args.overwrite}")
-    logging.info(f"Number of workers: {args.num_workers if args.num_workers is not None else 'All CPUs'}")
+    # Check available files
+    sheet_files = list(mass_sheet_dir.glob("delta-sheet-*.fits"))
+    if not sheet_files:
+        logging.error(f"No delta-sheet-*.fits files found in {mass_sheet_dir}")
+        return
+
+    if args.dry_run:
+        logging.info("DRY-RUN MODE")
+
+    print(f"\nKappa Generation Plan:")
+    print(f"Mass sheets: {mass_sheet_dir} ({len(sheet_files)} files)")
+    print(f"Output: {output_dir}")
+    print(f"Source redshifts: {zs_list}")
+    print(f"NSIDE: {args.nside}")
+    print(f"Workers: {args.num_workers or 'Auto'}")
+
+    if args.dry_run:
+        print("\nDRY-RUN COMPLETE")
+        return
 
     try:
-        # Need usmesh_attrs for KappaConstructor. We can get this by instantiating MassSheetProcessor
-        # on the parent directory of mass_sheet_directory (which should contain 'usmesh').
-        # This assumes basedir contains the original 'usmesh' or is structured like 'run0/' etc.
-        # If basedir *is* the directory containing 'usmesh', then MassSheetProcessor(basedir) is correct.
-        # Let's assume basedir is the one containing 'usmesh' directly.
-        try:
-            logging.debug(f"Attempting to load usmesh attributes from: {base_directory}")
-            # We don't need to run preprocess, just initialize to load attributes.
-            # Temporarily set log level high for this internal step if desired.
-            temp_msp = MassSheetProcessor(datadir=base_directory, overwrite=False) 
-            usmesh_attrs = temp_msp.msheets.attrs
-            logging.info("Successfully loaded usmesh attributes.")
-        except Exception as e:
-            logging.error(f"Failed to load usmesh_attrs using MassSheetProcessor from '{base_directory}'. These are required for KappaConstructor. Error: {e}")
-            logging.error("Kappa map generation failed.")
-            return
-
-        kappa_constructor = KappaConstructor(
-            mass_sheet_dir=mass_sheet_directory,
-            output_dir=kappa_output_directory,
-            usmesh_attrs=usmesh_attrs,
+        constructor = KappaConstructor(
+            mass_sheet_dir=mass_sheet_dir,
+            output_dir=output_dir,
             nside=args.nside,
             zs_list=zs_list,
             overwrite=args.overwrite,
             num_workers=args.num_workers
         )
-        kappa_constructor.compute_all_kappas()
-        logging.info("Kappa map generation completed successfully.")
+        
+        result = constructor.compute_all_kappas()
+        
+        print(f"\nResults:")
+        print(f"Successful: {result['successful']}")
+        print(f"Failed: {result['failed']}")
+        
+        if result['failed'] == 0:
+            logging.info("Kappa generation completed successfully")
+        else:
+            logging.warning(f"Completed with {result['failed']} failures")
+
     except Exception as e:
-        logging.error(f"An error occurred during kappa map generation: {e}", exc_info=True)
-        logging.error("Kappa map generation failed.")
+        logging.error(f"Kappa generation failed: {e}")
+
 
 if __name__ == "__main__":
-    main() 
+    main()
