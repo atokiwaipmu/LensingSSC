@@ -8,9 +8,9 @@ import logging
 
 from ..core.config.settings import ProcessingConfig, AnalysisConfig, get_config
 from ..core.base.exceptions import LensingSSCError
-from ..providers.factory import get_provider, list_available_providers
-from ..processing.pipeline.preprocessing import PreprocessingPipeline
-from ..processing.pipeline.analysis import AnalysisPipeline
+from ..core.providers.factory import get_provider, list_available_providers # Adjusted import path
+from ..core.processing.pipeline.preprocessing import PreprocessingPipeline # Adjusted import path
+from ..core.processing.pipeline.analysis import AnalysisPipeline # Adjusted import path
 
 
 class LensingSSCClient:

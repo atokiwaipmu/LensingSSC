@@ -1,8 +1,9 @@
 pytest
 cachetools
+pyyaml
+toml
 
 # Potentially optional or specific-use-case packages (review if needed for core):
-# pyyaml
 # classy
 # cobaya
 

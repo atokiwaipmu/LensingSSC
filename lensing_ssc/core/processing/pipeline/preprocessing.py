@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from .base_pipeline import BasePipeline, ProcessingStep
-from ...core.base.exceptions import ProcessingError
+from lensing_ssc.core.base.exceptions import ProcessingError # Absolute import
 from ...providers.factory import get_provider
 
 

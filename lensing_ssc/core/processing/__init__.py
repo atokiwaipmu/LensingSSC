@@ -45,7 +45,7 @@ from .pipeline.base_pipeline import BasePipeline, ProcessingStep
 
 # Import common pipelines
 from .pipeline.preprocessing import PreprocessingPipeline
-from .pipeline.analysis import AnalysisPipeline
+# from .pipeline.analysis import AnalysisPipeline # Commented out due to missing file/module
 
 # Import individual steps
 from .steps import (
@@ -81,7 +81,7 @@ from .managers import (
 # Pipeline registry for dynamic discovery
 _PIPELINE_REGISTRY: Dict[str, Type[BasePipeline]] = {
     'preprocessing': PreprocessingPipeline,
-    'analysis': AnalysisPipeline,
+    # 'analysis': AnalysisPipeline, # Commented out due to missing file/module
 }
 
 # Step registry for dynamic discovery
@@ -350,7 +350,7 @@ __all__ = [
     
     # Common pipelines  
     'PreprocessingPipeline',
-    'AnalysisPipeline',
+    # 'AnalysisPipeline', # Commented out due to missing file/module
     
     # Individual steps (organized by category)
     # Data loading

@@ -7,17 +7,17 @@ from .data_loading import (
     FileDiscoveryStep,
     DataValidationStep,
 )
-from .patching import (
-    PatchExtractionStep,
-    FibonacciGridStep,
-    PatchValidationStep,
-)
-from .statistics import (
-    PowerSpectrumStep,
-    BispectrumStep,
-    PDFAnalysisStep,
-    PeakCountingStep,
-)
+# from .patching import ( # Commented out due to missing patching.py
+#     PatchExtractionStep,
+#     FibonacciGridStep,
+#     PatchValidationStep,
+# )
+# from .statistics import ( # Commented out due to missing statistics.py
+#     PowerSpectrumStep,
+#     BispectrumStep,
+#     PDFAnalysisStep,
+#     PeakCountingStep,
+# )
 from .output import (
     HDF5OutputStep,
     PlotGenerationStep,
@@ -30,14 +30,14 @@ __all__ = [
     "FileDiscoveryStep", 
     "DataValidationStep",
     # Patching
-    "PatchExtractionStep",
-    "FibonacciGridStep",
-    "PatchValidationStep",
+    # "PatchExtractionStep", # Commented out due to missing patching.py
+    # "FibonacciGridStep", # Commented out due to missing patching.py
+    # "PatchValidationStep", # Commented out due to missing patching.py
     # Statistics
-    "PowerSpectrumStep",
-    "BispectrumStep",
-    "PDFAnalysisStep",
-    "PeakCountingStep",
+    # "PowerSpectrumStep", # Commented out due to missing statistics.py
+    # "BispectrumStep", # Commented out due to missing statistics.py
+    # "PDFAnalysisStep", # Commented out due to missing statistics.py
+    # "PeakCountingStep", # Commented out due to missing statistics.py
     # Output
     "HDF5OutputStep",
     "PlotGenerationStep",

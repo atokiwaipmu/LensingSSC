@@ -20,6 +20,7 @@ from .settings import (
 )
 from .manager import (
     ConfigManager,
+    ConfigManager as Config, # Alias ConfigManager as Config
     EnvironmentConfigManager,
 )
 from .loader import (
@@ -45,6 +46,7 @@ __all__ = [
     "CONFIG_SCHEMA",
     # Management classes
     "ConfigManager",
+    "Config", # Add Config to __all__
     "EnvironmentConfigManager",
     # Loader classes
     "ConfigLoader",

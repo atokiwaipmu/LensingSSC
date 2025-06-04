@@ -9,7 +9,7 @@ import numpy as np
 import logging
 
 from ..pipeline.base_pipeline import ProcessingStep
-from ...core.base.exceptions import ProcessingError
+from lensing_ssc.core.base.exceptions import ProcessingError # Absolute import
 from ...providers.factory import get_provider
 
 

@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 import logging
 from pathlib import Path
 
-from ...core.base.exceptions import ProcessingError
-from ...core.config.settings import ProcessingConfig
+from lensing_ssc.core.base.exceptions import ProcessingError # Absolute import
+from lensing_ssc.core.config.settings import ProcessingConfig # Absolute import
 
 
 class BasePipeline(ABC):
