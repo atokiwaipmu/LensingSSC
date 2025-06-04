@@ -9,7 +9,9 @@ __email__ = "akira.tokiwa@example.com"
 
 # Core imports that should always be available
 from lensing_ssc.core.base.exceptions import LensingSSCError
-from lensing_ssc.core.config.settings import get_config, set_config
+from lensing_ssc.core.config import get_config, Config
+from lensing_ssc.api.client import LensingSSCClient
+from lensing_ssc.core.base import MapData, PatchData
 
 # Conditional imports for heavy dependencies
 try:
@@ -23,7 +25,10 @@ __all__ = [
     "__version__",
     "LensingSSCError",
     "get_config",
-    "set_config",
+    "Config",
+    "LensingSSCClient",
+    "MapData",
+    "PatchData",
 ]
 
 if _HAS_FULL_API:
