@@ -25,6 +25,9 @@ extras_require = {
         'pyyaml',
         'classy',
         'cobaya'
+    ],
+    'mysql': [
+        'mysql-connector-python>=8.0.0'
     ]
 }
 

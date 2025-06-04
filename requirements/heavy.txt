@@ -10,3 +10,6 @@ cobaya>=3.0.0
 # Additional scientific packages
 camb>=1.3.0
 ccl>=2.0.0
+
+# Database connectors
+mysql-connector-python>=8.0.0

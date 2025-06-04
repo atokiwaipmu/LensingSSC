@@ -49,6 +49,24 @@ Some packages are best installed via pip:
    cobaya-install cosmo -p ./lib
    ```
 
+### Optional Backend Providers
+
+LensingSSC supports additional backend providers for various functionalities. These often require extra dependencies that can be installed as needed.
+
+**MySQL Provider (`mysql`)**
+
+*   The `MySQLProvider` allows LensingSSC to use a MySQL database for certain storage operations (e.g., managing metadata or simulation outputs, if configured to do so).
+*   **Dependency**: `mysql-connector-python`
+*   **Installation**: To include this provider, install LensingSSC with the `mysql` extra:
+    ```sh
+    pip install lensing-ssc[mysql]
+    ```
+    If you have already installed LensingSSC, you can install the connector separately:
+    ```sh
+    pip install mysql-connector-python>=8.0.0
+    ```
+*   **Configuration**: When configuring providers in your LensingSSC setup, use the name `'mysql'` to refer to this provider.
+
 ## Installing LensingSSC
 
 1. **Clone the repository:**

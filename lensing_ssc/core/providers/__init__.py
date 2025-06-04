@@ -31,19 +31,18 @@ Available Providers:
 import logging
 from typing import Dict, List, Optional, Type, Any
 
-from .factory import ProviderFactory, get_provider
+from .factory import ProviderFactory, get_provider as _get_provider_from_factory, _global_factory as global_provider_factory
 from .base_provider import BaseProvider, LazyProvider, CachedProvider
 
-# Global factory instance
-_factory = ProviderFactory()
+# _factory = ProviderFactory() # Removed: Using global_provider_factory from factory.py
 
 # Registry of available providers
 _available_providers: Dict[str, Type[BaseProvider]] = {}
 
 # Provider discovery and registration
 def _discover_providers():
-    """Discover and register available providers."""
-    global _available_providers, _factory
+    """Discover and register available providers with the global factory."""
+    global _available_providers # Removed _factory from global
     
     logger = logging.getLogger(__name__)
     
@@ -51,8 +50,8 @@ def _discover_providers():
     try:
         from .healpix_provider import HealpixProvider
         _available_providers['healpix'] = HealpixProvider
-        _factory.register_provider('healpix', HealpixProvider)
-        logger.debug("Registered HealpixProvider")
+        global_provider_factory.register_provider('healpix', HealpixProvider)
+        logger.debug("Registered HealpixProvider with global factory")
     except ImportError as e:
         logger.debug(f"HealpixProvider not available: {e}")
 
@@ -60,8 +59,8 @@ def _discover_providers():
     try:
         from .lenstools_provider import LenstoolsProvider
         _available_providers['lenstools'] = LenstoolsProvider
-        _factory.register_provider('lenstools', LenstoolsProvider)
-        logger.debug("Registered LenstoolsProvider")
+        global_provider_factory.register_provider('lenstools', LenstoolsProvider)
+        logger.debug("Registered LenstoolsProvider with global factory")
     except ImportError as e:
         logger.debug(f"LenstoolsProvider not available: {e}")
 
@@ -69,8 +68,8 @@ def _discover_providers():
     try:
         from .nbodykit_provider import NbodykitProvider
         _available_providers['nbodykit'] = NbodykitProvider
-        _factory.register_provider('nbodykit', NbodykitProvider)
-        logger.debug("Registered NbodykitProvider")
+        global_provider_factory.register_provider('nbodykit', NbodykitProvider)
+        logger.debug("Registered NbodykitProvider with global factory")
     except ImportError as e:
         logger.debug(f"NbodykitProvider not available: {e}")
 
@@ -78,10 +77,19 @@ def _discover_providers():
     try:
         from .matplotlib_provider import MatplotlibProvider
         _available_providers['matplotlib'] = MatplotlibProvider
-        _factory.register_provider('matplotlib', MatplotlibProvider)
-        logger.debug("Registered MatplotlibProvider")
+        global_provider_factory.register_provider('matplotlib', MatplotlibProvider)
+        logger.debug("Registered MatplotlibProvider with global factory")
     except ImportError as e:
         logger.debug(f"MatplotlibProvider not available: {e}")
+
+    # MySQL provider
+    try:
+        from .mysql_provider import MySQLProvider
+        _available_providers['mysql'] = MySQLProvider
+        global_provider_factory.register_provider('mysql', MySQLProvider)
+        logger.debug("Registered MySQLProvider with global factory")
+    except ImportError as e:
+        logger.debug(f"MySQLProvider not available: {e}")
 
 # Perform provider discovery on import
 _discover_providers()
@@ -95,7 +103,7 @@ def list_available_providers() -> List[str]:
     List[str]
         List of provider names that can be instantiated
     """
-    return _factory.list_providers(available_only=True)
+    return global_provider_factory.list_providers(available_only=True)
 
 def list_all_providers() -> List[str]:
     """List names of all registered providers (available or not).
@@ -105,7 +113,12 @@ def list_all_providers() -> List[str]:
     List[str]
         List of all registered provider names
     """
-    return _factory.list_providers(available_only=False)
+    return global_provider_factory.list_providers(available_only=False)
+
+# The get_provider function to be exported is taken directly from the factory
+# (which uses the global factory)
+get_provider = _get_provider_from_factory
+
 
 def get_provider_info(name: str) -> Dict[str, Any]:
     """Get information about a provider.
@@ -120,7 +133,7 @@ def get_provider_info(name: str) -> Dict[str, Any]:
     Dict[str, Any]
         Provider information including availability, version, etc.
     """
-    return _factory.get_provider_info(name)
+    return global_provider_factory.get_provider_info(name)
 
 def is_provider_available(name: str) -> bool:
     """Check if a provider is available.
@@ -135,7 +148,7 @@ def is_provider_available(name: str) -> bool:
     bool
         True if provider can be instantiated
     """
-    return _factory.is_provider_available(name)
+    return global_provider_factory.is_provider_available(name)
 
 def register_provider(name: str, provider_class: Type[BaseProvider]) -> None:
     """Register a custom provider.
@@ -148,7 +161,7 @@ def register_provider(name: str, provider_class: Type[BaseProvider]) -> None:
         Provider class
     """
     _available_providers[name] = provider_class
-    _factory.register_provider(name, provider_class)
+    global_provider_factory.register_provider(name, provider_class)
 
 def auto_detect_providers() -> Dict[str, bool]:
     """Auto-detect available providers and return status.
@@ -180,6 +193,7 @@ def get_default_provider(provider_type: str) -> Optional[str]:
         'lensing': ['lenstools'],
         'convergence': ['lenstools'],
         'statistics': ['lenstools'],
+        'database': ['mysql'],
     }
     
     candidates = type_mapping.get(provider_type, [])
@@ -211,6 +225,9 @@ def create_provider_config() -> Dict[str, Any]:
     
     if is_provider_available('matplotlib'):
         config['matplotlib'] = 'lensing_ssc.providers.matplotlib_provider.MatplotlibProvider'
+
+    if is_provider_available('mysql'):
+        config['mysql'] = 'lensing_ssc.providers.mysql_provider.MySQLProvider'
     
     return config
 
@@ -226,7 +243,11 @@ def validate_dependencies() -> Dict[str, Dict[str, Any]]:
     
     for name in _available_providers.keys():
         try:
-            provider = _factory.create_provider(name)
+            # create_provider is suitable here for a temporary instance if needed for full info
+            # However, get_provider_info from the factory often does this, or can be enhanced to.
+            # For just availability and version, get_provider_info might be enough and safer.
+            # Let's use create_provider for now as per original structure for validate_dependencies
+            provider = global_provider_factory.create_provider(name)
             results[name] = {
                 'available': provider.is_available(),
                 'version': provider.version,
@@ -293,5 +314,11 @@ except ImportError:
 try:
     from .matplotlib_provider import MatplotlibProvider
     __all__.append('MatplotlibProvider')
+except ImportError:
+    pass
+
+try:
+    from .mysql_provider import MySQLProvider
+    __all__.append('MySQLProvider')
 except ImportError:
     pass
