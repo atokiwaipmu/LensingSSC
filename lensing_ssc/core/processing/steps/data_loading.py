@@ -1,45 +1,22 @@
 # lensing_ssc/processing/steps/data_loading.py
 """
-Data loading and validation steps for LensingSSC processing.
+Data loading and validation steps for LensingSSC processing pipelines.
 
-This module provides processing steps for discovering, loading, and validating
-various types of data files used in lensing analysis, including:
-
-- Generic file discovery and validation
-- Kappa map loading from FITS files  
-- N-body simulation data loading from BigFile catalogs
-- Data structure validation and metadata extraction
-
-Steps in this module:
-    - FileDiscoveryStep: Generic file discovery and metadata extraction
-    - DataLoadingStep: Generic data loading with format detection
-    - DataValidationStep: Data structure and content validation
-    - KappaMapLoadingStep: Specialized kappa map loading from FITS
-    - USMeshLoadingStep: N-body simulation data loading from BigFile
-
-Usage:
-    from lensing_ssc.processing.steps.data_loading import KappaMapLoadingStep
-    
-    # Load kappa maps
-    kappa_step = KappaMapLoadingStep(
-        "load_kappa",
-        input_directory="/path/to/kappa/maps",
-        file_pattern="kappa_*.fits"
-    )
-    
-    # Add to pipeline
-    pipeline.add_step(kappa_step)
+Provides steps for file discovery, data loading, and validation with support
+for FITS, HDF5, NumPy, and CSV formats commonly used in weak lensing analysis.
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Union, Pattern
-from pathlib import Path
 import re
 import time
-from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Union, Tuple
+from pathlib import Path
+from dataclasses import dataclass, field
+from datetime import datetime
+import numpy as np
 
-from . import BaseDataStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, DataError
+from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
+from lensing_ssc.core.base import ValidationError, ProcessingError, DataError, IOError
 
 
 logger = logging.getLogger(__name__)
@@ -50,965 +27,790 @@ class FileInfo:
     """Container for file metadata and information."""
     path: Path
     name: str
+    stem: str
     suffix: str
     size_bytes: int
     size_mb: float
-    modified_time: float
-    exists: bool
-    metadata: Dict[str, Any]
+    modified_time: datetime
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
     
     @classmethod
-    def from_path(cls, file_path: Path) -> 'FileInfo':
+    def from_path(cls, path: Path) -> 'FileInfo':
         """Create FileInfo from a file path."""
-        if file_path.exists():
-            stat = file_path.stat()
-            return cls(
-                path=file_path,
-                name=file_path.name,
-                suffix=file_path.suffix,
-                size_bytes=stat.st_size,
-                size_mb=stat.st_size / (1024**2),
-                modified_time=stat.st_mtime,
-                exists=True,
-                metadata={}
-            )
-        else:
-            return cls(
-                path=file_path,
-                name=file_path.name,
-                suffix=file_path.suffix,
-                size_bytes=0,
-                size_mb=0.0,
-                modified_time=0.0,
-                exists=False,
-                metadata={}
-            )
+        stat = path.stat()
+        return cls(
+            path=path,
+            name=path.name,
+            stem=path.stem,
+            suffix=path.suffix,
+            size_bytes=stat.st_size,
+            size_mb=stat.st_size / (1024**2),
+            modified_time=datetime.fromtimestamp(stat.st_mtime)
+        )
+    
+    def add_metadata(self, key: str, value: Any) -> None:
+        """Add metadata entry."""
+        self.metadata[key] = value
+    
+    def add_tag(self, tag: str) -> None:
+        """Add a tag to the file."""
+        if tag not in self.tags:
+            self.tags.append(tag)
 
 
-class FileDiscoveryStep(BaseDataStep):
-    """Discover files matching specified patterns and extract metadata.
-    
-    This step provides generic file discovery capabilities with pattern matching,
-    metadata extraction, and file validation.
-    
-    Parameters
-    ----------
-    name : str
-        Step instance name
-    input_directory : Union[str, Path]
-        Directory to search for files
-    file_patterns : Union[str, List[str]]
-        File patterns to match (glob-style)
-    recursive : bool, optional
-        Whether to search recursively
-    required_files : bool, optional
-        Whether files are required to be found
-    metadata_extractors : Dict[str, callable], optional
-        Custom metadata extraction functions
-    """
+class FileDiscoveryStep(ProcessingStep):
+    """Discover and catalog data files based on patterns and criteria."""
     
     def __init__(
         self,
         name: str,
-        input_directory: Union[str, Path],
-        file_patterns: Union[str, List[str]],
-        recursive: bool = False,
-        required_files: bool = True,
-        metadata_extractors: Optional[Dict[str, callable]] = None,
+        file_patterns: Optional[List[str]] = None,
+        search_dirs: Optional[List[Union[str, Path]]] = None,
+        recursive: bool = True,
+        extract_metadata: bool = True,
+        min_file_size: int = 0,
+        max_file_size: Optional[int] = None,
+        required_extensions: Optional[List[str]] = None,
+        exclude_patterns: Optional[List[str]] = None,
         **kwargs
     ):
         super().__init__(name, **kwargs)
-        self.input_directory = Path(input_directory)
-        self.file_patterns = file_patterns if isinstance(file_patterns, list) else [file_patterns]
+        
+        self.file_patterns = file_patterns or ["*.fits", "*.hdf5", "*.npy"]
+        self.search_dirs = [Path(d) for d in (search_dirs or [])]
         self.recursive = recursive
-        self.required_files = required_files
-        self.metadata_extractors = metadata_extractors or {}
+        self.extract_metadata = extract_metadata
+        self.min_file_size = min_file_size
+        self.max_file_size = max_file_size
+        self.required_extensions = required_extensions or []
+        self.exclude_patterns = exclude_patterns or []
+        
+        # Metadata extraction patterns
+        self.metadata_patterns = {
+            'kappa_maps': r"kappa_zs(\d+\.?\d*)_s(\w+)_nside(\d+)\.fits",
+            'patch_files': r"(.+)_patches_oa(\d+)_x(\d+)\.npy",
+            'stats_files': r"(.+)_stats_oa(\d+)_x(\d+)\.hdf5",
+            'mass_sheets': r"delta-sheet-(\d+)\.fits",
+        }
     
     def execute(self, context: PipelineContext, inputs: Dict[str, StepResult]) -> StepResult:
         """Execute file discovery."""
         result = StepResult(
             step_name=self.name,
             status=StepStatus.RUNNING,
-            metadata={}
+            start_time=datetime.now()
         )
         
         try:
-            # Validate input directory
-            if not self.input_directory.exists():
-                if self.required_files:
-                    raise ValidationError(f"Input directory does not exist: {self.input_directory}")
-                else:
-                    self.logger.warning(f"Input directory does not exist: {self.input_directory}")
-                    result.data = {'discovered_files': {}, 'file_count': 0}
-                    result.status = StepStatus.COMPLETED
-                    return result
+            if not self.search_dirs:
+                self.search_dirs = self._get_search_dirs_from_context(context)
             
-            # Discover files
-            discovered_files = self._discover_files()
+            discovered_files = []
+            total_size = 0
             
-            # Extract metadata
-            self._extract_metadata(discovered_files)
+            for search_dir in self.search_dirs:
+                if not search_dir.exists():
+                    self.logger.warning(f"Search directory does not exist: {search_dir}")
+                    continue
+                
+                dir_files = self._discover_files_in_directory(search_dir)
+                discovered_files.extend(dir_files)
+                total_size += sum(f.size_bytes for f in dir_files)
             
-            # Validate discovery results
-            if self.required_files and not discovered_files:
-                raise ValidationError("No files found matching the specified patterns")
+            valid_files = self._filter_and_validate_files(discovered_files)
+            
+            if self.extract_metadata:
+                self._extract_file_metadata(valid_files)
+            
+            organized_files = self._organize_files_by_type(valid_files)
             
             result.data = {
-                'discovered_files': discovered_files,
-                'file_count': len(discovered_files),
-                'input_directory': str(self.input_directory),
-                'patterns_used': self.file_patterns
+                'files': valid_files,
+                'organized_files': organized_files,
+                'file_count': len(valid_files),
+                'total_size_gb': total_size / (1024**3),
+                'search_dirs': [str(d) for d in self.search_dirs]
             }
             
             result.metadata = {
-                'n_files_found': len(discovered_files),
-                'total_size_mb': sum(info.size_mb for info in discovered_files.values()),
-                'file_extensions': list(set(info.suffix for info in discovered_files.values())),
-                'discovery_successful': True
+                'n_discovered': len(discovered_files),
+                'n_valid': len(valid_files),
+                'n_filtered': len(discovered_files) - len(valid_files),
+                'total_size_gb': total_size / (1024**3),
+                'file_types': list(organized_files.keys()),
+                'search_patterns': self.file_patterns,
             }
             
-            self.logger.info(f"Discovered {len(discovered_files)} files in {self.input_directory}")
+            if len(valid_files) == 0:
+                result.warnings.append("No valid files discovered")
             
+            self.logger.info(f"Discovered {len(valid_files)} valid files ({total_size/(1024**3):.2f} GB)")
             result.status = StepStatus.COMPLETED
-            return result
             
         except Exception as e:
             result.status = StepStatus.FAILED
             result.error = e
-            return result
+        finally:
+            result.end_time = datetime.now()
+            
+        return result
     
-    def _discover_files(self) -> Dict[Path, FileInfo]:
-        """Discover files matching patterns."""
-        discovered_files = {}
+    def _get_search_dirs_from_context(self, context: PipelineContext) -> List[Path]:
+        """Extract search directories from pipeline context."""
+        search_dirs = []
+        config = context.config
+        
+        for attr in ['data_dir', 'input_dir', 'kappa_input_dir', 'patch_output_dir']:
+            if hasattr(config, attr):
+                path = getattr(config, attr)
+                if path and Path(path).exists():
+                    search_dirs.append(Path(path))
+        
+        if not search_dirs:
+            search_dirs = [Path.cwd()]
+            self.logger.warning("No search directories specified, using current directory")
+        
+        return search_dirs
+    
+    def _discover_files_in_directory(self, directory: Path) -> List[FileInfo]:
+        """Discover files in a single directory."""
+        discovered = []
         
         for pattern in self.file_patterns:
-            if self.recursive:
-                matches = self.input_directory.rglob(pattern)
-            else:
-                matches = self.input_directory.glob(pattern)
+            files = directory.rglob(pattern) if self.recursive else directory.glob(pattern)
             
-            for file_path in matches:
+            for file_path in files:
                 if file_path.is_file():
-                    file_info = FileInfo.from_path(file_path)
-                    discovered_files[file_path] = file_info
-                    self.logger.debug(f"Found file: {file_path} ({file_info.size_mb:.2f} MB)")
+                    try:
+                        file_info = FileInfo.from_path(file_path)
+                        discovered.append(file_info)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to process file {file_path}: {e}")
         
-        return discovered_files
+        return discovered
     
-    def _extract_metadata(self, discovered_files: Dict[Path, FileInfo]) -> None:
-        """Extract metadata from discovered files."""
-        for file_path, file_info in discovered_files.items():
-            # Apply custom metadata extractors
-            for extractor_name, extractor_func in self.metadata_extractors.items():
-                try:
-                    metadata = extractor_func(file_path)
-                    file_info.metadata[extractor_name] = metadata
-                except Exception as e:
-                    self.logger.warning(f"Metadata extraction '{extractor_name}' failed for {file_path}: {e}")
-                    file_info.metadata[extractor_name] = None
+    def _filter_and_validate_files(self, files: List[FileInfo]) -> List[FileInfo]:
+        """Filter and validate discovered files."""
+        valid_files = []
+        
+        for file_info in files:
+            # Size filters
+            if file_info.size_bytes < self.min_file_size:
+                continue
+            if self.max_file_size and file_info.size_bytes > self.max_file_size:
+                continue
+            
+            # Extension filters
+            if self.required_extensions and file_info.suffix.lower() not in self.required_extensions:
+                continue
+            
+            # Exclude patterns
+            if any(re.search(pattern, file_info.name) for pattern in self.exclude_patterns):
+                continue
+            
+            # Basic validation
+            if not file_info.path.exists() or file_info.size_bytes == 0:
+                continue
+            
+            valid_files.append(file_info)
+        
+        return valid_files
+    
+    def _extract_file_metadata(self, files: List[FileInfo]) -> None:
+        """Extract metadata from filenames using regex patterns."""
+        for file_info in files:
+            filename = file_info.name
+            
+            for pattern_name, pattern in self.metadata_patterns.items():
+                match = re.match(pattern, filename)
+                if match:
+                    file_info.add_tag(pattern_name)
+                    
+                    if pattern_name == 'kappa_maps':
+                        file_info.add_metadata('redshift', float(match.group(1)))
+                        file_info.add_metadata('seed', match.group(2))
+                        file_info.add_metadata('nside', int(match.group(3)))
+                    elif pattern_name in ['patch_files', 'stats_files']:
+                        file_info.add_metadata('base_name', match.group(1))
+                        file_info.add_metadata('patch_size_deg', int(match.group(2)))
+                        file_info.add_metadata('xsize', int(match.group(3)))
+                    elif pattern_name == 'mass_sheets':
+                        file_info.add_metadata('sheet_id', int(match.group(1)))
+                    break
+    
+    def _organize_files_by_type(self, files: List[FileInfo]) -> Dict[str, List[FileInfo]]:
+        """Organize files by type/category."""
+        organized = {}
+        
+        for file_info in files:
+            # Organize by tags first, fallback to extension
+            categories = file_info.tags if file_info.tags else [file_info.suffix.lower()]
+            
+            for category in categories:
+                if category not in organized:
+                    organized[category] = []
+                organized[category].append(file_info)
+        
+        # Sort files within each category
+        for category in organized:
+            organized[category].sort(key=lambda f: f.path)
+        
+        return organized
 
 
-class DataLoadingStep(BaseDataStep):
-    """Generic data loading step with format detection.
-    
-    This step provides generic data loading capabilities with automatic
-    format detection and validation.
-    
-    Parameters
-    ----------
-    name : str
-        Step instance name
-    file_dependency : str
-        Name of step that provides file information
-    file_key : str, optional
-        Key in dependency output to get file information
-    load_all : bool, optional
-        Whether to load all discovered files
-    max_files : int, optional
-        Maximum number of files to load
-    validate_data : bool, optional
-        Whether to validate loaded data
-    """
+class DataLoadingStep(ProcessingStep):
+    """Load data from discovered files with format detection and validation."""
     
     def __init__(
         self,
         name: str,
-        file_dependency: str,
-        file_key: str = "discovered_files",
-        load_all: bool = True,
-        max_files: Optional[int] = None,
-        validate_data: bool = True,
+        data_types: Optional[List[str]] = None,
+        load_strategy: str = "eager",
+        validate_on_load: bool = True,
+        max_memory_gb: float = 8.0,
+        cache_loaded_data: bool = True,
         **kwargs
     ):
-        super().__init__(name, dependencies=[file_dependency], **kwargs)
-        self.file_dependency = file_dependency
-        self.file_key = file_key
-        self.load_all = load_all
-        self.max_files = max_files
-        self.validate_data = validate_data
+        super().__init__(name, **kwargs)
+        
+        self.data_types = data_types or ['healpix_map', 'patches', 'catalog']
+        self.load_strategy = load_strategy
+        self.validate_on_load = validate_on_load
+        self.max_memory_gb = max_memory_gb
+        self.cache_loaded_data = cache_loaded_data
+        
+        # Data loaders for different formats
+        self.loaders = {
+            '.fits': self._load_fits_file,
+            '.hdf5': self._load_hdf5_file,
+            '.h5': self._load_hdf5_file,
+            '.npy': self._load_npy_file,
+            '.npz': self._load_npz_file,
+            '.csv': self._load_csv_file,
+        }
     
     def execute(self, context: PipelineContext, inputs: Dict[str, StepResult]) -> StepResult:
         """Execute data loading."""
         result = StepResult(
             step_name=self.name,
             status=StepStatus.RUNNING,
-            metadata={}
+            start_time=datetime.now()
         )
         
         try:
-            # Get file information from dependency
-            file_input = inputs[self.file_dependency]
-            if not file_input.is_successful():
-                raise ProcessingError(f"File dependency '{self.file_dependency}' failed")
+            discovery_result = self._get_discovery_result(inputs)
+            if not discovery_result:
+                raise ProcessingError("File discovery step result not found or failed")
             
-            discovered_files = file_input.data.get(self.file_key, {})
-            if not discovered_files:
-                raise ValidationError("No files to load")
+            files_to_load = self._select_files_to_load(discovery_result.data)
             
-            # Select files to load
-            files_to_load = self._select_files_to_load(discovered_files)
+            if not files_to_load:
+                result.status = StepStatus.SKIPPED
+                result.warnings.append("No files selected for loading")
+                return result
             
-            # Load data from files
-            loaded_data = self._load_data_files(files_to_load)
+            # Estimate memory and check limits
+            estimated_memory = self._estimate_memory_requirements(files_to_load)
+            if estimated_memory > self.max_memory_gb:
+                self.logger.warning(
+                    f"Estimated memory ({estimated_memory:.2f} GB) exceeds limit ({self.max_memory_gb} GB)"
+                )
+            
+            # Load data
+            loaded_data = {}
+            loading_errors = []
+            total_loaded = 0
+            
+            for file_info in files_to_load:
+                try:
+                    data = self._load_file(file_info)
+                    
+                    if self.validate_on_load and not self._validate_loaded_data(data, file_info):
+                        loading_errors.append(f"Validation failed: {file_info.name}")
+                        continue
+                    
+                    loaded_data[str(file_info.path)] = {
+                        'data': data,
+                        'file_info': file_info,
+                        'load_time': time.time(),
+                        'data_type': self._detect_data_type(data, file_info)
+                    }
+                    
+                    total_loaded += 1
+                    
+                    if self.cache_loaded_data:
+                        cache_key = f"loaded_data_{file_info.stem}"
+                        context.shared_data[cache_key] = data
+                    
+                except Exception as e:
+                    error_msg = f"Failed to load {file_info.name}: {e}"
+                    loading_errors.append(error_msg)
+                    self.logger.error(error_msg)
             
             result.data = {
                 'loaded_data': loaded_data,
-                'file_count': len(loaded_data),
-                'loading_successful': True
+                'loading_errors': loading_errors,
+                'files_loaded': total_loaded,
+                'files_requested': len(files_to_load),
+                'estimated_memory_gb': estimated_memory
             }
             
             result.metadata = {
-                'n_files_loaded': len(loaded_data),
-                'n_files_available': len(discovered_files),
-                'loading_errors': sum(1 for data in loaded_data.values() if data.get('error')),
-                'data_types': list(set(data.get('data_type') for data in loaded_data.values() if data.get('data_type')))
+                'n_files_loaded': total_loaded,
+                'n_files_failed': len(loading_errors),
+                'success_rate': total_loaded / len(files_to_load) if files_to_load else 0,
+                'load_strategy': self.load_strategy,
+                'data_types_loaded': list(set(
+                    item['data_type'] for item in loaded_data.values()
+                )),
             }
             
-            self.logger.info(f"Loaded data from {len(loaded_data)} files")
+            if loading_errors:
+                result.warnings.extend(loading_errors[:5])
+                if len(loading_errors) > 5:
+                    result.warnings.append(f"... and {len(loading_errors) - 5} more errors")
             
+            self.logger.info(f"Successfully loaded {total_loaded}/{len(files_to_load)} files")
             result.status = StepStatus.COMPLETED
-            return result
             
         except Exception as e:
             result.status = StepStatus.FAILED
             result.error = e
-            return result
+        finally:
+            result.end_time = datetime.now()
+            
+        return result
     
-    def _select_files_to_load(self, discovered_files: Dict[Path, FileInfo]) -> Dict[Path, FileInfo]:
-        """Select which files to load based on configuration."""
-        files_to_load = discovered_files
-        
-        if not self.load_all:
-            # Take first file only
-            files_to_load = {list(discovered_files.keys())[0]: list(discovered_files.values())[0]}
-        
-        if self.max_files and len(files_to_load) > self.max_files:
-            # Limit to max_files
-            items = list(files_to_load.items())[:self.max_files]
-            files_to_load = dict(items)
-        
-        return files_to_load
+    def _get_discovery_result(self, inputs: Dict[str, StepResult]) -> Optional[StepResult]:
+        """Get file discovery result from inputs."""
+        for step_result in inputs.values():
+            if (step_result.is_successful() and 
+                'files' in step_result.data and
+                'organized_files' in step_result.data):
+                return step_result
+        return None
     
-    def _load_data_files(self, files_to_load: Dict[Path, FileInfo]) -> Dict[Path, Dict[str, Any]]:
-        """Load data from files with format detection."""
-        loaded_data = {}
+    def _select_files_to_load(self, discovery_data: Dict[str, Any]) -> List[FileInfo]:
+        """Select files to load based on data types."""
+        files_to_load = []
+        organized_files = discovery_data.get('organized_files', {})
         
-        for file_path, file_info in files_to_load.items():
-            try:
-                self.logger.debug(f"Loading data from {file_path}")
-                
-                # Detect format and load data
-                data_info = self._load_single_file(file_path, file_info)
-                
-                # Validate data if requested
-                if self.validate_data and data_info.get('data') is not None:
-                    validation_result = self._validate_loaded_data(data_info['data'], file_path)
-                    data_info.update(validation_result)
-                
-                loaded_data[file_path] = data_info
-                
-            except Exception as e:
-                self.logger.error(f"Failed to load {file_path}: {e}")
-                loaded_data[file_path] = {
-                    'data': None,
-                    'error': str(e),
-                    'file_info': file_info,
-                    'loading_successful': False
-                }
+        for data_type in self.data_types:
+            if data_type in organized_files:
+                files_to_load.extend(organized_files[data_type])
+            else:
+                # Match by file tags
+                for file_list in organized_files.values():
+                    for file_info in file_list:
+                        if data_type in file_info.tags:
+                            files_to_load.append(file_info)
         
-        return loaded_data
+        # Remove duplicates
+        seen_paths = set()
+        unique_files = []
+        for file_info in files_to_load:
+            if file_info.path not in seen_paths:
+                unique_files.append(file_info)
+                seen_paths.add(file_info.path)
+        
+        return unique_files
     
-    def _load_single_file(self, file_path: Path, file_info: FileInfo) -> Dict[str, Any]:
-        """Load a single file with format detection."""
-        file_format = self._detect_file_format(file_path)
+    def _estimate_memory_requirements(self, files: List[FileInfo]) -> float:
+        """Estimate memory requirements for loading files."""
+        total_size_gb = sum(f.size_mb for f in files) / 1024
         
-        data_info = {
-            'file_path': file_path,
-            'file_info': file_info,
-            'file_format': file_format,
-            'loading_successful': False,
-            'data': None
-        }
+        # Add overhead based on file types
+        overhead_factor = 1.5
+        for file_info in files:
+            if file_info.suffix.lower() == '.fits':
+                overhead_factor = max(overhead_factor, 2.0)  # FITS may be compressed
+            elif file_info.suffix.lower() in ['.hdf5', '.h5']:
+                overhead_factor = max(overhead_factor, 1.2)  # HDF5 is efficient
         
-        if file_format == 'fits':
-            data_info.update(self._load_fits_file(file_path))
-        elif file_format == 'npy':
-            data_info.update(self._load_npy_file(file_path))
-        elif file_format == 'csv':
-            data_info.update(self._load_csv_file(file_path))
-        elif file_format == 'hdf5':
-            data_info.update(self._load_hdf5_file(file_path))
-        else:
-            raise ProcessingError(f"Unsupported file format: {file_format}")
-        
-        return data_info
+        return total_size_gb * overhead_factor
     
-    def _detect_file_format(self, file_path: Path) -> str:
-        """Detect file format from extension."""
-        suffix = file_path.suffix.lower()
-        
-        format_mapping = {
-            '.fits': 'fits',
-            '.fit': 'fits',
-            '.npy': 'npy',
-            '.npz': 'npz',
-            '.csv': 'csv',
-            '.txt': 'txt',
-            '.h5': 'hdf5',
-            '.hdf5': 'hdf5',
-        }
-        
-        return format_mapping.get(suffix, 'unknown')
+    def _load_file(self, file_info: FileInfo) -> Any:
+        """Load a single file using appropriate loader."""
+        loader = self.loaders.get(file_info.suffix.lower())
+        if not loader:
+            raise IOError(f"No loader available for file type: {file_info.suffix}")
+        return loader(file_info.path)
     
-    def _load_fits_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_fits_file(self, file_path: Path) -> Any:
         """Load FITS file."""
         try:
             import healpy as hp
-            
-            data = hp.read_map(str(file_path), nest=None)
-            
-            return {
-                'data': data,
-                'data_type': 'healpix_map',
-                'shape': data.shape,
-                'dtype': str(data.dtype),
-                'loading_successful': True
-            }
+            return hp.read_map(str(file_path), nest=None)
         except ImportError:
             raise ProcessingError("healpy is required to load FITS files")
+        except Exception:
+            try:
+                from astropy.io import fits
+                with fits.open(file_path) as hdul:
+                    return hdul[0].data
+            except ImportError:
+                raise ProcessingError("astropy is required as fallback for FITS files")
     
-    def _load_npy_file(self, file_path: Path) -> Dict[str, Any]:
-        """Load NumPy file."""
-        try:
-            import numpy as np
-            
-            data = np.load(file_path)
-            
-            return {
-                'data': data,
-                'data_type': 'numpy_array',
-                'shape': data.shape,
-                'dtype': str(data.dtype),
-                'loading_successful': True
-            }
-        except ImportError:
-            raise ProcessingError("numpy is required to load .npy files")
-    
-    def _load_csv_file(self, file_path: Path) -> Dict[str, Any]:
-        """Load CSV file."""
-        try:
-            import pandas as pd
-            
-            data = pd.read_csv(file_path)
-            
-            return {
-                'data': data,
-                'data_type': 'dataframe',
-                'shape': data.shape,
-                'columns': list(data.columns),
-                'loading_successful': True
-            }
-        except ImportError:
-            raise ProcessingError("pandas is required to load CSV files")
-    
-    def _load_hdf5_file(self, file_path: Path) -> Dict[str, Any]:
+    def _load_hdf5_file(self, file_path: Path) -> Any:
         """Load HDF5 file."""
         try:
             import h5py
-            
-            with h5py.File(file_path, 'r') as f:
-                # Get basic structure info
-                keys = list(f.keys())
-                
-            return {
-                'data': file_path,  # Store path for lazy loading
-                'data_type': 'hdf5_file',
-                'keys': keys,
-                'loading_successful': True
-            }
+            return h5py.File(file_path, 'r')
         except ImportError:
             raise ProcessingError("h5py is required to load HDF5 files")
     
-    def _validate_loaded_data(self, data: Any, file_path: Path) -> Dict[str, Any]:
-        """Validate loaded data."""
-        validation_result = {
-            'validation_passed': False,
-            'validation_errors': []
-        }
+    def _load_npy_file(self, file_path: Path) -> np.ndarray:
+        """Load NumPy .npy file."""
+        return np.load(file_path)
+    
+    def _load_npz_file(self, file_path: Path) -> Any:
+        """Load NumPy .npz file."""
+        return np.load(file_path)
+    
+    def _load_csv_file(self, file_path: Path) -> Any:
+        """Load CSV file."""
+        try:
+            import pandas as pd
+            return pd.read_csv(file_path)
+        except ImportError:
+            return np.loadtxt(file_path, delimiter=',')
+    
+    def _detect_data_type(self, data: Any, file_info: FileInfo) -> str:
+        """Detect the type of loaded data."""
+        if file_info.tags:
+            return file_info.tags[0]
+        
+        if isinstance(data, np.ndarray):
+            if data.ndim == 1:
+                return 'vector_data'
+            elif data.ndim == 2:
+                return 'image_or_patch'
+            elif data.ndim == 3:
+                return 'patch_collection'
+            return 'multidimensional_array'
         
         try:
-            import numpy as np
-            
-            if isinstance(data, np.ndarray):
-                # Validate numpy array
-                if data.size == 0:
-                    validation_result['validation_errors'].append("Array is empty")
-                elif not np.isfinite(data).any():
-                    validation_result['validation_errors'].append("Array contains no finite values")
-                else:
-                    validation_result['validation_passed'] = True
-            
-            elif hasattr(data, 'shape'):
-                # Validate pandas DataFrame or similar
-                if data.empty:
-                    validation_result['validation_errors'].append("Data is empty")
-                else:
-                    validation_result['validation_passed'] = True
-            
-            else:
-                # Basic validation for other types
-                if data is None:
-                    validation_result['validation_errors'].append("Data is None")
-                else:
-                    validation_result['validation_passed'] = True
-                    
-        except Exception as e:
-            validation_result['validation_errors'].append(f"Validation error: {e}")
+            import h5py
+            if isinstance(data, h5py.File):
+                return 'hdf5_file'
+        except ImportError:
+            pass
         
-        return validation_result
-
-
-class DataValidationStep(BaseDataStep):
-    """Validate data structure and content.
+        try:
+            import pandas as pd
+            if isinstance(data, pd.DataFrame):
+                return 'tabular_data'
+        except ImportError:
+            pass
+        
+        return 'unknown'
     
-    Parameters
-    ----------
-    name : str
-        Step instance name
-    data_dependency : str
-        Name of step that provides data
-    validation_rules : Dict[str, Any], optional
-        Custom validation rules
-    strict_mode : bool, optional
-        Whether to fail on any validation error
-    """
+    def _validate_loaded_data(self, data: Any, file_info: FileInfo) -> bool:
+        """Basic validation of loaded data."""
+        if data is None:
+            return False
+        
+        if isinstance(data, np.ndarray):
+            return data.size > 0 and np.isfinite(data).any()
+        
+        return True
+
+
+class DataValidationStep(ProcessingStep):
+    """Validate loaded data for quality and consistency."""
     
     def __init__(
         self,
         name: str,
-        data_dependency: str,
         validation_rules: Optional[Dict[str, Any]] = None,
         strict_mode: bool = False,
         **kwargs
     ):
-        super().__init__(name, dependencies=[data_dependency], **kwargs)
-        self.data_dependency = data_dependency
+        super().__init__(name, **kwargs)
+        
         self.validation_rules = validation_rules or {}
         self.strict_mode = strict_mode
+        
+        # Default validation rules
+        self.default_rules = {
+            'healpix_map': {
+                'finite_values': True,
+                'value_range': (-10, 10),
+            },
+            'patches': {
+                'finite_values': True,
+                'min_patches': 1,
+            },
+            'tabular_data': {
+                'no_empty_rows': True,
+            }
+        }
     
     def execute(self, context: PipelineContext, inputs: Dict[str, StepResult]) -> StepResult:
         """Execute data validation."""
         result = StepResult(
             step_name=self.name,
             status=StepStatus.RUNNING,
-            metadata={}
+            start_time=datetime.now()
         )
         
         try:
-            # Get data from dependency
-            data_input = inputs[self.data_dependency]
-            if not data_input.is_successful():
-                raise ProcessingError(f"Data dependency '{self.data_dependency}' failed")
+            loading_result = self._get_loading_result(inputs)
+            if not loading_result:
+                raise ProcessingError("Data loading step result not found or failed")
             
-            loaded_data = data_input.data.get('loaded_data', {})
+            loaded_data = loading_result.data['loaded_data']
             
-            # Validate each data item
-            validation_results = self._validate_all_data(loaded_data)
+            if not loaded_data:
+                result.status = StepStatus.SKIPPED
+                result.warnings.append("No loaded data to validate")
+                return result
             
-            # Aggregate results
-            total_items = len(validation_results)
-            passed_items = sum(1 for v in validation_results.values() if v['validation_passed'])
-            failed_items = total_items - passed_items
+            # Validate each dataset
+            validation_results = {}
+            total_issues = 0
+            
+            for file_path, data_info in loaded_data.items():
+                validation_result = self._validate_dataset(
+                    data_info['data'], 
+                    data_info['data_type'], 
+                    data_info['file_info']
+                )
+                validation_results[file_path] = validation_result
+                total_issues += len(validation_result['issues'])
+            
+            # Generate summary
+            valid_count = sum(1 for vr in validation_results.values() if vr['is_valid'])
+            invalid_count = len(validation_results) - valid_count
             
             result.data = {
                 'validation_results': validation_results,
-                'validation_summary': {
-                    'total_items': total_items,
-                    'passed_items': passed_items,
-                    'failed_items': failed_items,
-                    'success_rate': passed_items / total_items if total_items > 0 else 0
+                'summary': {
+                    'total_datasets': len(validation_results),
+                    'valid_datasets': valid_count,
+                    'invalid_datasets': invalid_count,
+                    'total_issues': total_issues,
                 }
             }
             
             result.metadata = {
-                'validation_passed': failed_items == 0,
-                'n_items_validated': total_items,
-                'n_failed_validations': failed_items,
-                'validation_success_rate': passed_items / total_items if total_items > 0 else 0
+                'n_validated': len(validation_results),
+                'n_valid': valid_count,
+                'n_invalid': invalid_count,
+                'total_issues': total_issues,
+                'validation_passed': invalid_count == 0,
+                'strict_mode': self.strict_mode,
             }
             
-            # Check if we should fail in strict mode
-            if self.strict_mode and failed_items > 0:
-                raise ValidationError(f"Validation failed for {failed_items} items in strict mode")
+            if self.strict_mode and invalid_count > 0:
+                raise ValidationError(f"Validation failed: {invalid_count} invalid datasets")
             
-            self.logger.info(f"Validated {total_items} items: {passed_items} passed, {failed_items} failed")
+            if invalid_count > 0:
+                result.warnings.append(f"{invalid_count} datasets failed validation")
             
+            self.logger.info(f"Validation complete: {valid_count}/{len(validation_results)} datasets valid")
             result.status = StepStatus.COMPLETED
-            return result
             
         except Exception as e:
             result.status = StepStatus.FAILED
             result.error = e
-            return result
+        finally:
+            result.end_time = datetime.now()
+            
+        return result
     
-    def _validate_all_data(self, loaded_data: Dict[Path, Dict[str, Any]]) -> Dict[Path, Dict[str, Any]]:
-        """Validate all loaded data items."""
-        validation_results = {}
-        
-        for file_path, data_info in loaded_data.items():
-            validation_result = self._validate_single_item(data_info, file_path)
-            validation_results[file_path] = validation_result
-        
-        return validation_results
-    
-    def _validate_single_item(self, data_info: Dict[str, Any], file_path: Path) -> Dict[str, Any]:
-        """Validate a single data item."""
-        validation_result = {
-            'file_path': file_path,
-            'validation_passed': True,
-            'validation_errors': [],
-            'validation_warnings': []
-        }
-        
-        try:
-            # Check if data loaded successfully
-            if not data_info.get('loading_successful', False):
-                validation_result['validation_errors'].append("Data loading failed")
-                validation_result['validation_passed'] = False
-                return validation_result
-            
-            data = data_info.get('data')
-            if data is None:
-                validation_result['validation_errors'].append("Data is None")
-                validation_result['validation_passed'] = False
-                return validation_result
-            
-            # Apply custom validation rules
-            for rule_name, rule_config in self.validation_rules.items():
-                rule_result = self._apply_validation_rule(data, rule_name, rule_config)
-                if not rule_result['passed']:
-                    validation_result['validation_errors'].extend(rule_result['errors'])
-                    validation_result['validation_passed'] = False
-                validation_result['validation_warnings'].extend(rule_result.get('warnings', []))
-            
-        except Exception as e:
-            validation_result['validation_errors'].append(f"Validation exception: {e}")
-            validation_result['validation_passed'] = False
-        
-        return validation_result
-    
-    def _apply_validation_rule(self, data: Any, rule_name: str, rule_config: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply a custom validation rule."""
-        rule_result = {
-            'passed': True,
-            'errors': [],
-            'warnings': []
-        }
-        
-        try:
-            rule_type = rule_config.get('type', 'custom')
-            
-            if rule_type == 'shape':
-                # Validate data shape
-                expected_shape = rule_config['expected_shape']
-                if hasattr(data, 'shape') and data.shape != expected_shape:
-                    rule_result['errors'].append(f"Shape mismatch: expected {expected_shape}, got {data.shape}")
-                    rule_result['passed'] = False
-            
-            elif rule_type == 'range':
-                # Validate value range
-                import numpy as np
-                if isinstance(data, np.ndarray):
-                    min_val = rule_config.get('min_value')
-                    max_val = rule_config.get('max_value')
-                    
-                    if min_val is not None and np.min(data) < min_val:
-                        rule_result['errors'].append(f"Values below minimum: {np.min(data)} < {min_val}")
-                        rule_result['passed'] = False
-                    
-                    if max_val is not None and np.max(data) > max_val:
-                        rule_result['errors'].append(f"Values above maximum: {np.max(data)} > {max_val}")
-                        rule_result['passed'] = False
-            
-            elif rule_type == 'finite':
-                # Check for finite values
-                import numpy as np
-                if isinstance(data, np.ndarray):
-                    if not np.isfinite(data).all():
-                        n_invalid = np.sum(~np.isfinite(data))
-                        rule_result['warnings'].append(f"Found {n_invalid} non-finite values")
-                        
-                        if rule_config.get('require_all_finite', False):
-                            rule_result['errors'].append("Non-finite values found when all finite required")
-                            rule_result['passed'] = False
-            
-            elif rule_type == 'custom':
-                # Apply custom validation function
-                validator_func = rule_config.get('validator')
-                if validator_func:
-                    custom_result = validator_func(data)
-                    rule_result.update(custom_result)
-            
-        except Exception as e:
-            rule_result['errors'].append(f"Rule '{rule_name}' failed: {e}")
-            rule_result['passed'] = False
-        
-        return rule_result
-
-
-class KappaMapLoadingStep(BaseDataStep):
-    """Specialized step for loading kappa maps from FITS files.
-    
-    Parameters
-    ----------
-    name : str
-        Step instance name
-    input_directory : Union[str, Path]
-        Directory containing kappa FITS files
-    file_pattern : str, optional
-        Pattern to match kappa files
-    validate_healpix : bool, optional
-        Whether to validate HEALPix structure
-    reorder_to_ring : bool, optional
-        Whether to reorder maps to RING ordering
-    """
-    
-    def __init__(
-        self,
-        name: str,
-        input_directory: Union[str, Path],
-        file_pattern: str = "kappa_*.fits",
-        validate_healpix: bool = True,
-        reorder_to_ring: bool = True,
-        **kwargs
-    ):
-        super().__init__(name, **kwargs)
-        self.input_directory = Path(input_directory)
-        self.file_pattern = file_pattern
-        self.validate_healpix = validate_healpix
-        self.reorder_to_ring = reorder_to_ring
-    
-    def execute(self, context: PipelineContext, inputs: Dict[str, StepResult]) -> StepResult:
-        """Execute kappa map loading."""
-        result = StepResult(
-            step_name=self.name,
-            status=StepStatus.RUNNING,
-            metadata={}
-        )
-        
-        try:
-            # Discover kappa files
-            kappa_files = self._discover_kappa_files()
-            
-            # Load and process kappa maps
-            loaded_maps = self._load_kappa_maps(kappa_files)
-            
-            result.data = {
-                'kappa_maps': loaded_maps,
-                'file_count': len(loaded_maps),
-                'input_directory': str(self.input_directory)
-            }
-            
-            result.metadata = {
-                'n_maps_loaded': len(loaded_maps),
-                'n_maps_failed': sum(1 for m in loaded_maps.values() if m.get('error')),
-                'redshifts': list(set(m.get('redshift') for m in loaded_maps.values() if m.get('redshift'))),
-                'seeds': list(set(m.get('seed') for m in loaded_maps.values() if m.get('seed'))),
-                'nsides': list(set(m.get('nside') for m in loaded_maps.values() if m.get('nside')))
-            }
-            
-            self.logger.info(f"Loaded {len(loaded_maps)} kappa maps")
-            
-            result.status = StepStatus.COMPLETED
-            return result
-            
-        except Exception as e:
-            result.status = StepStatus.FAILED
-            result.error = e
-            return result
-    
-    def _discover_kappa_files(self) -> Dict[Path, Dict[str, Any]]:
-        """Discover kappa FITS files and extract metadata."""
-        if not self.input_directory.exists():
-            raise ValidationError(f"Kappa input directory does not exist: {self.input_directory}")
-        
-        kappa_files = {}
-        for fits_file in self.input_directory.glob(self.file_pattern):
-            file_info = self._parse_kappa_filename(fits_file)
-            if file_info:
-                kappa_files[fits_file] = file_info
-            else:
-                self.logger.warning(f"Could not parse kappa filename: {fits_file.name}")
-        
-        if not kappa_files:
-            raise ValidationError(f"No kappa files found matching pattern '{self.file_pattern}'")
-        
-        return kappa_files
-    
-    def _parse_kappa_filename(self, file_path: Path) -> Optional[Dict[str, Any]]:
-        """Parse kappa filename to extract metadata."""
-        # Pattern: kappa_zs{redshift}_s{seed}_nside{nside}.fits
-        pattern = r"kappa_zs(\d+\.?\d*)_s(\w+)_nside(\d+)\.fits"
-        match = re.match(pattern, file_path.name)
-        
-        if match:
-            return {
-                'redshift': float(match.group(1)),
-                'seed': str(match.group(2)),
-                'nside': int(match.group(3)),
-                'file_path': file_path
-            }
+    def _get_loading_result(self, inputs: Dict[str, StepResult]) -> Optional[StepResult]:
+        """Get data loading result from inputs."""
+        for step_result in inputs.values():
+            if (step_result.is_successful() and 'loaded_data' in step_result.data):
+                return step_result
         return None
     
-    def _load_kappa_maps(self, kappa_files: Dict[Path, Dict[str, Any]]) -> Dict[Path, Dict[str, Any]]:
-        """Load kappa maps from FITS files."""
-        try:
-            import healpy as hp
-            import numpy as np
-        except ImportError:
-            raise ProcessingError("healpy and numpy are required for kappa map loading")
+    def _validate_dataset(self, data: Any, data_type: str, file_info: FileInfo) -> Dict[str, Any]:
+        """Validate a single dataset."""
+        issues = []
+        warnings = []
         
-        loaded_maps = {}
-        
-        for file_path, file_info in kappa_files.items():
-            try:
-                self.logger.debug(f"Loading kappa map: {file_path.name}")
-                
-                # Load the map
-                kappa_map = hp.read_map(str(file_path), nest=None)
-                
-                # Reorder to RING if requested
-                if self.reorder_to_ring:
-                    # Check if map is in NEST ordering and reorder if needed
-                    # Note: This is a heuristic since healpy doesn't always detect ordering correctly
-                    try:
-                        # Try to reorder - if it's already RING, this should be safe
-                        kappa_map = hp.reorder(kappa_map, n2r=True)
-                    except:
-                        # If reordering fails, assume it's already in correct format
-                        pass
-                
-                # Validate HEALPix structure if requested
-                if self.validate_healpix:
-                    self._validate_healpix_map(kappa_map, file_info)
-                
-                map_info = {
-                    'data': kappa_map,
-                    'file_path': file_path,
-                    'redshift': file_info.get('redshift'),
-                    'seed': file_info.get('seed'),
-                    'nside': file_info.get('nside'),
-                    'npix': len(kappa_map),
-                    'shape': kappa_map.shape,
-                    'dtype': str(kappa_map.dtype),
-                    'mean': np.mean(kappa_map),
-                    'std': np.std(kappa_map),
-                    'min': np.min(kappa_map),
-                    'max': np.max(kappa_map),
-                    'n_finite': np.sum(np.isfinite(kappa_map)),
-                    'loading_successful': True
-                }
-                
-                loaded_maps[file_path] = map_info
-                
-            except Exception as e:
-                self.logger.error(f"Failed to load kappa map {file_path}: {e}")
-                loaded_maps[file_path] = {
-                    'data': None,
-                    'file_path': file_path,
-                    'error': str(e),
-                    'loading_successful': False,
-                    **file_info
-                }
-        
-        return loaded_maps
-    
-    def _validate_healpix_map(self, kappa_map: Any, file_info: Dict[str, Any]) -> None:
-        """Validate HEALPix map structure."""
-        try:
-            import healpy as hp
-            import numpy as np
-        except ImportError:
-            return
-        
-        # Check if it's a valid HEALPix map
-        if not isinstance(kappa_map, np.ndarray):
-            raise ValidationError("Kappa map is not a numpy array")
-        
-        if kappa_map.ndim != 1:
-            raise ValidationError(f"Kappa map must be 1D, got {kappa_map.ndim}D")
-        
-        # Check if npix is valid for HEALPix
-        npix = len(kappa_map)
-        if not hp.isnpix(npix):
-            raise ValidationError(f"Invalid number of pixels for HEALPix: {npix}")
-        
-        # Check expected nside if provided
-        expected_nside = file_info.get('nside')
-        if expected_nside:
-            actual_nside = hp.npix2nside(npix)
-            if actual_nside != expected_nside:
-                raise ValidationError(f"NSIDE mismatch: expected {expected_nside}, got {actual_nside}")
-        
-        # Check for reasonable values
-        if not np.isfinite(kappa_map).any():
-            raise ValidationError("Kappa map contains no finite values")
-
-
-class USMeshLoadingStep(BaseDataStep):
-    """Specialized step for loading N-body simulation data from BigFile.
-    
-    Parameters
-    ----------
-    name : str
-        Step instance name
-    data_directory : Union[str, Path]
-        Directory containing usmesh data
-    dataset_name : str, optional
-        BigFile dataset name
-    validate_structure : bool, optional
-        Whether to validate data structure
-    """
-    
-    def __init__(
-        self,
-        name: str,
-        data_directory: Union[str, Path],
-        dataset_name: str = "HEALPIX/",
-        validate_structure: bool = True,
-        **kwargs
-    ):
-        super().__init__(name, **kwargs)
-        self.data_directory = Path(data_directory)
-        self.dataset_name = dataset_name
-        self.validate_structure = validate_structure
-    
-    def execute(self, context: PipelineContext, inputs: Dict[str, StepResult]) -> StepResult:
-        """Execute USMesh data loading."""
-        result = StepResult(
-            step_name=self.name,
-            status=StepStatus.RUNNING,
-            metadata={}
-        )
+        rules = self.validation_rules.get(data_type, self.default_rules.get(data_type, {}))
         
         try:
-            # Validate directory structure
-            usmesh_dir = self.data_directory / "usmesh"
-            if not usmesh_dir.exists():
-                raise ValidationError(f"USMesh directory not found: {usmesh_dir}")
+            if data is None:
+                issues.append("Data is None")
+                return {'is_valid': False, 'issues': issues, 'warnings': warnings}
             
-            # Load BigFile catalog
-            catalog_info = self._load_bigfile_catalog(usmesh_dir)
+            # Type-specific validation
+            if isinstance(data, np.ndarray):
+                issues.extend(self._validate_numpy_array(data, rules))
+            elif hasattr(data, 'keys'):
+                issues.extend(self._validate_structured_data(data, rules))
             
-            result.data = {
-                'usmesh_catalog': catalog_info['catalog'],
-                'catalog_attrs': catalog_info['attrs'],
-                'data_directory': str(self.data_directory),
-                'usmesh_directory': str(usmesh_dir)
-            }
-            
-            result.metadata = {
-                'catalog_loaded': True,
-                'seed': catalog_info['attrs'].get('seed', [None])[0],
-                'box_size': catalog_info['attrs'].get('BoxSize', [None])[0],
-                'nc': catalog_info['attrs'].get('NC', [None])[0],
-                'n_mass_sheets': len(catalog_info['attrs'].get('aemitIndex.edges', [])) - 1,
-                'healpix_npix': catalog_info['attrs'].get('healpix.npix', [None])[0]
-            }
-            
-            self.logger.info(f"Loaded USMesh catalog with {result.metadata['n_mass_sheets']} mass sheets")
-            
-            result.status = StepStatus.COMPLETED
-            return result
+            # Data type specific validation
+            if data_type == 'healpix_map':
+                issues.extend(self._validate_healpix_map(data, rules))
+            elif data_type in ['patches', 'patch_collection']:
+                issues.extend(self._validate_patches(data, rules))
+            elif data_type == 'tabular_data':
+                issues.extend(self._validate_tabular_data(data, rules))
             
         except Exception as e:
-            result.status = StepStatus.FAILED
-            result.error = e
-            return result
+            issues.append(f"Validation error: {str(e)}")
+        
+        return {
+            'is_valid': len(issues) == 0,
+            'issues': issues,
+            'warnings': warnings,
+            'data_type': data_type,
+            'file_info': file_info.name,
+            'validation_time': datetime.now()
+        }
     
-    def _load_bigfile_catalog(self, usmesh_dir: Path) -> Dict[str, Any]:
-        """Load BigFile catalog and extract attributes."""
-        try:
-            from nbodykit.lab import BigFileCatalog
-        except ImportError:
-            raise ProcessingError("nbodykit is required for USMesh data loading")
+    def _validate_numpy_array(self, data: np.ndarray, rules: Dict[str, Any]) -> List[str]:
+        """Validate numpy array data."""
+        issues = []
+        
+        if rules.get('finite_values', True) and not np.isfinite(data).all():
+            n_bad = np.sum(~np.isfinite(data))
+            issues.append(f"Array contains {n_bad} non-finite values")
+        
+        if 'value_range' in rules:
+            min_val, max_val = rules['value_range']
+            data_min, data_max = np.min(data), np.max(data)
+            if data_min < min_val or data_max > max_val:
+                issues.append(f"Values outside expected range [{min_val}, {max_val}]: actual [{data_min:.3f}, {data_max:.3f}]")
+        
+        if data.size == 0:
+            issues.append("Array is empty")
+        
+        return issues
+    
+    def _validate_structured_data(self, data: Any, rules: Dict[str, Any]) -> List[str]:
+        """Validate structured data."""
+        issues = []
         
         try:
-            # Load the catalog
-            catalog = BigFileCatalog(str(usmesh_dir), dataset=self.dataset_name)
-            attrs = catalog.attrs
+            keys = list(data.keys()) if hasattr(data, 'keys') else []
             
-            # Validate structure if requested
-            if self.validate_structure:
-                self._validate_catalog_structure(catalog, attrs)
+            if not keys:
+                issues.append("No data keys found")
             
-            return {
-                'catalog': catalog,
-                'attrs': attrs
-            }
-            
+            if 'required_keys' in rules:
+                missing_keys = set(rules['required_keys']) - set(keys)
+                if missing_keys:
+                    issues.append(f"Missing required keys: {missing_keys}")
+        
         except Exception as e:
-            raise ProcessingError(f"Failed to load BigFile catalog: {e}")
+            issues.append(f"Error accessing structured data: {str(e)}")
+        
+        return issues
     
-    def _validate_catalog_structure(self, catalog: Any, attrs: Dict[str, Any]) -> None:
-        """Validate BigFile catalog structure."""
-        # Check required attributes
-        required_attrs = ['aemitIndex.edges', 'aemitIndex.offset', 'healpix.npix', 'BoxSize', 'NC', 'MassTable']
-        missing_attrs = []
+    def _validate_healpix_map(self, data: np.ndarray, rules: Dict[str, Any]) -> List[str]:
+        """Validate HEALPix map data."""
+        issues = []
         
-        for attr in required_attrs:
-            if attr not in attrs:
-                missing_attrs.append(attr)
+        if not isinstance(data, np.ndarray):
+            issues.append("HEALPix map must be numpy array")
+            return issues
         
-        if missing_attrs:
-            raise ValidationError(f"Missing required attributes: {missing_attrs}")
+        try:
+            import healpy as hp
+            if not hp.isnpix(data.size):
+                issues.append(f"Invalid HEALPix map size: {data.size}")
+            else:
+                nside = hp.npix2nside(data.size)
+                if nside < 1 or nside > 8192:
+                    issues.append(f"Unusual NSIDE value: {nside}")
+        except ImportError:
+            issues.append("Cannot validate HEALPix map without healpy")
         
-        # Check required columns
-        required_columns = ['ID', 'Mass', 'Aemit']
-        missing_columns = []
+        # Check for typical kappa map characteristics
+        if data.size > 0:
+            mean_val = np.mean(data)
+            std_val = np.std(data)
+            
+            if abs(mean_val) > 0.1:
+                issues.append(f"Unusual mean value for kappa map: {mean_val:.6f}")
+            
+            if std_val < 1e-6:
+                issues.append(f"Very small standard deviation: {std_val:.6e}")
+            elif std_val > 1.0:
+                issues.append(f"Very large standard deviation: {std_val:.6f}")
         
-        for col in required_columns:
-            if col not in catalog:
-                missing_columns.append(col)
+        return issues
+    
+    def _validate_patches(self, data: np.ndarray, rules: Dict[str, Any]) -> List[str]:
+        """Validate patch data."""
+        issues = []
         
-        if missing_columns:
-            raise ValidationError(f"Missing required columns: {missing_columns}")
+        if not isinstance(data, np.ndarray):
+            issues.append("Patches must be numpy array")
+            return issues
         
-        # Validate data consistency
-        aemit_edges = attrs['aemitIndex.edges']
-        aemit_offset = attrs['aemitIndex.offset']
+        min_patches = rules.get('min_patches', 1)
+        if data.ndim >= 1 and data.shape[0] < min_patches:
+            issues.append(f"Too few patches: {data.shape[0]}, minimum: {min_patches}")
         
-        if len(aemit_offset) != len(aemit_edges) + 1:
-            raise ValidationError("Inconsistent aemitIndex arrays")
+        if data.ndim == 3:  # Collection of 2D patches
+            n_patches, height, width = data.shape
+            
+            if height != width:
+                issues.append(f"Non-square patches: {height}x{width}")
+            
+            if height < 16 or height > 4096:
+                issues.append(f"Unusual patch size: {height}x{width}")
         
-        self.logger.debug("BigFile catalog structure validation passed")
+        elif data.ndim == 2:  # Single patch
+            height, width = data.shape
+            if height != width:
+                issues.append(f"Non-square patch: {height}x{width}")
+        
+        else:
+            issues.append(f"Unexpected patch data dimensions: {data.ndim}")
+        
+        return issues
+    
+    def _validate_tabular_data(self, data: Any, rules: Dict[str, Any]) -> List[str]:
+        """Validate tabular data."""
+        issues = []
+        
+        try:
+            import pandas as pd
+            is_dataframe = isinstance(data, pd.DataFrame)
+        except ImportError:
+            is_dataframe = False
+        
+        if is_dataframe:
+            if data.empty:
+                issues.append("DataFrame is empty")
+            
+            if 'required_columns' in rules:
+                missing_cols = set(rules['required_columns']) - set(data.columns)
+                if missing_cols:
+                    issues.append(f"Missing required columns: {missing_cols}")
+            
+            if rules.get('no_empty_rows', False):
+                empty_rows = data.isnull().all(axis=1).sum()
+                if empty_rows > 0:
+                    issues.append(f"Found {empty_rows} empty rows")
+        
+        elif isinstance(data, np.ndarray) and data.dtype.names:
+            if data.size == 0:
+                issues.append("Structured array is empty")
+            
+            if 'required_columns' in rules:
+                missing_fields = set(rules['required_columns']) - set(data.dtype.names)
+                if missing_fields:
+                    issues.append(f"Missing required fields: {missing_fields}")
+        
+        else:
+            issues.append("Tabular data must be pandas DataFrame or structured numpy array")
+        
+        return issues
 
 
 __all__ = [
     'FileInfo',
     'FileDiscoveryStep',
-    'DataLoadingStep',
+    'DataLoadingStep', 
     'DataValidationStep',
-    'KappaMapLoadingStep',
-    'USMeshLoadingStep',
 ]
