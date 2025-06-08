@@ -1,458 +1,444 @@
 """
-Progress tracking and monitoring for processing operations.
+Progress manager for tracking and reporting processing progress.
+
+Provides comprehensive progress tracking with multiple display formats,
+nested progress support, performance metrics, and thread-safe operations.
 """
 
 import time
-import logging
-from typing import Optional, Dict, Any, Callable, Union
+import threading
+from typing import Dict, Any, Optional, Callable, Union, List
+from dataclasses import dataclass, field
 from contextlib import contextmanager
-from pathlib import Path
+import logging
+import sys
+import os
 
-from ...base.exceptions import ProcessingError
-
-try:
-    from tqdm import tqdm
-    _HAS_TQDM = True
-except ImportError:
-    _HAS_TQDM = False
+from .exceptions import ProgressError
+from ...config.settings import ProcessingConfig
 
 
-class ProgressManager:
-    """Manager for tracking and displaying processing progress.
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ProgressMetrics:
+    """Performance metrics for progress tracking."""
+    start_time: float = field(default_factory=time.time)
+    last_update: float = field(default_factory=time.time)
+    total: Optional[int] = None
+    current: int = 0
+    rate: float = 0.0
+    elapsed: float = 0.0
+    eta: Optional[float] = None
     
-    Provides both programmatic progress tracking and optional visual progress bars.
-    Supports nested progress tracking for complex operations.
-    
-    Parameters
-    ----------
-    total : int, optional
-        Total number of operations expected
-    description : str, optional
-        Description for progress display
-    unit : str, optional
-        Unit for progress display (default: "it")
-    enable_bar : bool, optional
-        Whether to show progress bar (default: True if tqdm available)
-    log_interval : int, optional
-        Log progress every N updates (default: 10)
-    time_remaining : bool, optional
-        Whether to estimate time remaining (default: True)
-    """
+    def update_metrics(self, current: int) -> None:
+        """Update performance metrics."""
+        now = time.time()
+        self.elapsed = now - self.start_time
+        
+        if current > self.current:
+            time_diff = now - self.last_update
+            if time_diff > 0:
+                self.rate = (current - self.current) / time_diff
+        
+        self.current = current
+        self.last_update = now
+        
+        # Calculate ETA
+        if self.total and self.rate > 0:
+            remaining = self.total - current
+            self.eta = remaining / self.rate
+
+
+class ProgressTracker:
+    """Individual progress tracker with display and metrics."""
     
     def __init__(
         self,
         total: Optional[int] = None,
         description: str = "Processing",
-        unit: str = "it",
-        enable_bar: bool = None,
-        log_interval: int = 10,
-        time_remaining: bool = True
+        unit: str = "items",
+        show_rate: bool = True,
+        show_eta: bool = True,
+        update_interval: float = 0.1
     ):
         self.total = total
         self.description = description
         self.unit = unit
-        self.log_interval = log_interval
-        self.time_remaining = time_remaining
+        self.show_rate = show_rate
+        self.show_eta = show_eta
+        self.update_interval = update_interval
         
-        # Auto-detect if we should show progress bar
-        if enable_bar is None:
-            self.enable_bar = _HAS_TQDM and total is not None
-        else:
-            self.enable_bar = enable_bar and _HAS_TQDM
+        self.metrics = ProgressMetrics(total=total)
+        self._lock = threading.Lock()
+        self._last_display_update = 0.0
+        self._paused = False
+        self._pause_start = 0.0
+        self._total_pause_time = 0.0
         
-        # Progress tracking
-        self.current = 0
-        self.start_time = None
-        self.last_update_time = None
-        self.last_log_count = 0
-        
-        # Progress bar
-        self._pbar = None
-        self._nested_bars = []
-        
-        # Callbacks
-        self._update_callbacks = []
-        self._completion_callbacks = []
-        
-        # Logger
-        self.logger = logging.getLogger(self.__class__.__name__)
-        
-        # Statistics
-        self.stats = {
-            'updates': 0,
-            'total_time': 0,
-            'average_rate': 0,
-            'estimated_remaining': None
-        }
+        # Display state
+        self._last_line_length = 0
+        self._display_enabled = self._should_display()
     
-    def start(self) -> None:
-        """Start progress tracking."""
-        self.start_time = time.perf_counter()
-        self.last_update_time = self.start_time
-        self.current = 0
+    def update(self, n: int = 1, **kwargs) -> None:
+        """Update progress by n steps."""
+        with self._lock:
+            if self._paused:
+                return
+                
+            new_current = self.metrics.current + n
+            if self.total and new_current > self.total:
+                new_current = self.total
+                
+            self.metrics.update_metrics(new_current)
+            
+            # Update description if provided
+            if 'description' in kwargs:
+                self.description = kwargs['description']
+            
+            # Display update
+            now = time.time()
+            if (now - self._last_display_update) >= self.update_interval:
+                self._display()
+                self._last_display_update = now
+    
+    def set_current(self, current: int) -> None:
+        """Set absolute progress position."""
+        with self._lock:
+            if self._paused:
+                return
+            self.metrics.update_metrics(current)
+            self._display()
+    
+    def pause(self) -> None:
+        """Pause progress tracking."""
+        with self._lock:
+            if not self._paused:
+                self._paused = True
+                self._pause_start = time.time()
+    
+    def resume(self) -> None:
+        """Resume progress tracking."""
+        with self._lock:
+            if self._paused:
+                self._paused = False
+                self._total_pause_time += time.time() - self._pause_start
+                self.metrics.start_time += self._total_pause_time
+    
+    def finish(self) -> None:
+        """Mark progress as complete."""
+        with self._lock:
+            if self.total:
+                self.metrics.update_metrics(self.total)
+            self._display(force=True)
+            if self._display_enabled:
+                print()  # New line after completion
+    
+    def _display(self, force: bool = False) -> None:
+        """Display progress information."""
+        if not self._display_enabled and not force:
+            return
+            
+        line = self._format_line()
         
-        if self.enable_bar and self.total is not None:
-            self._pbar = tqdm(
-                total=self.total,
-                desc=self.description,
-                unit=self.unit,
-                dynamic_ncols=True
-            )
+        if self._display_enabled:
+            # Clear previous line
+            if self._last_line_length > 0:
+                print('\r' + ' ' * self._last_line_length + '\r', end='')
+            
+            # Print new line
+            print(f'\r{line}', end='', flush=True)
+            self._last_line_length = len(line)
+    
+    def _format_line(self) -> str:
+        """Format progress line for display."""
+        parts = [self.description]
         
-        self.logger.info(f"Started progress tracking: {self.description}")
+        # Progress indicator
         if self.total:
-            self.logger.info(f"Total operations: {self.total}")
+            percentage = (self.metrics.current / self.total) * 100
+            bar_width = 30
+            filled_width = int(bar_width * self.metrics.current / self.total)
+            bar = '█' * filled_width + '░' * (bar_width - filled_width)
+            parts.append(f"|{bar}| {self.metrics.current}/{self.total} ({percentage:.1f}%)")
+        else:
+            parts.append(f"{self.metrics.current} {self.unit}")
+        
+        # Rate
+        if self.show_rate and self.metrics.rate > 0:
+            if self.metrics.rate >= 1:
+                parts.append(f"{self.metrics.rate:.1f} {self.unit}/s")
+            else:
+                parts.append(f"{1/self.metrics.rate:.1f} s/{self.unit}")
+        
+        # Elapsed time
+        elapsed_str = self._format_time(self.metrics.elapsed)
+        parts.append(f"[{elapsed_str}")
+        
+        # ETA
+        if self.show_eta and self.metrics.eta is not None:
+            eta_str = self._format_time(self.metrics.eta)
+            parts[-1] += f"<{eta_str}"
+        
+        parts[-1] += "]"
+        
+        return " ".join(parts)
     
-    def update(self, n: int = 1, info: str = "", **kwargs) -> None:
-        """Update progress by n steps.
-        
-        Parameters
-        ----------
-        n : int
-            Number of steps to advance
-        info : str
-            Additional information to display
-        **kwargs
-            Additional metadata
-        """
-        if self.start_time is None:
-            self.start()
-        
-        self.current += n
-        self.stats['updates'] += 1
-        current_time = time.perf_counter()
-        
-        # Update progress bar
-        if self._pbar is not None:
-            self._pbar.update(n)
-            if info:
-                self._pbar.set_postfix_str(info)
-        
-        # Calculate statistics
-        self._update_statistics(current_time)
-        
-        # Log progress periodically
-        if (self.current - self.last_log_count) >= self.log_interval:
-            self._log_progress(info)
-            self.last_log_count = self.current
-        
-        # Call update callbacks
-        for callback in self._update_callbacks:
-            try:
-                callback(self.current, self.total, info, **kwargs)
-            except Exception as e:
-                self.logger.warning(f"Progress callback failed: {e}")
-        
-        # Check for completion
-        if self.total and self.current >= self.total:
-            self._on_completion()
-        
-        self.last_update_time = current_time
+    def _format_time(self, seconds: float) -> str:
+        """Format time duration."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            return f"{seconds//60:.0f}m{seconds%60:.0f}s"
+        else:
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            return f"{hours:.0f}h{minutes:.0f}m"
     
-    def set_description(self, description: str) -> None:
-        """Update progress description."""
-        self.description = description
-        if self._pbar is not None:
-            self._pbar.set_description(description)
+    def _should_display(self) -> bool:
+        """Check if progress should be displayed."""
+        return (
+            sys.stdout.isatty() and 
+            os.getenv('JUPYTER_RUNNING') != '1' and
+            not os.getenv('PYTEST_RUNNING')
+        )
     
-    def set_postfix(self, **kwargs) -> None:
-        """Set postfix information for progress bar."""
-        if self._pbar is not None:
-            self._pbar.set_postfix(**kwargs)
+    def get_status(self) -> Dict[str, Any]:
+        """Get current tracker status."""
+        return {
+            'description': self.description,
+            'total': self.total,
+            'current': self.metrics.current,
+            'percentage': (self.metrics.current / self.total * 100) if self.total else None,
+            'rate': self.metrics.rate,
+            'elapsed': self.metrics.elapsed,
+            'eta': self.metrics.eta,
+            'paused': self._paused,
+        }
+
+
+class ProgressManager:
+    """Manager for multiple progress trackers with coordination."""
     
-    def close(self) -> None:
-        """Close progress tracking."""
-        if self._pbar is not None:
-            self._pbar.close()
-            self._pbar = None
-        
-        # Close nested bars
-        for bar in self._nested_bars:
-            if bar is not None:
-                bar.close()
-        self._nested_bars.clear()
-        
-        self.logger.info(f"Completed progress tracking: {self.description}")
-        if self.start_time:
-            total_time = time.perf_counter() - self.start_time
-            self.logger.info(f"Total time: {self._format_duration(total_time)}")
-    
-    def __enter__(self):
-        """Context manager entry."""
-        self.start()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.close()
-    
-    @contextmanager
-    def nested(self, total: Optional[int] = None, description: str = "Subtask", **kwargs):
-        """Create nested progress tracking.
+    def __init__(
+        self,
+        total: Optional[int] = None,
+        description: str = "Processing",
+        unit: str = "items",
+        show_rate: bool = True,
+        show_eta: bool = True,
+        nested_indent: str = "  ",
+        config: Optional[ProcessingConfig] = None
+    ):
+        """Initialize progress manager.
         
         Parameters
         ----------
         total : int, optional
-            Total for nested operation
+            Total number of items to process
         description : str
-            Description for nested operation
+            Main progress description
+        unit : str
+            Unit name for items
+        show_rate : bool
+            Show processing rate
+        show_eta : bool
+            Show estimated time to completion
+        nested_indent : str
+            Indentation for nested progress
+        config : ProcessingConfig, optional
+            Configuration object
+        """
+        # Load from config if provided
+        if config:
+            show_rate = getattr(config, 'enable_progress_bar', True)
+            
+        self.main_tracker = ProgressTracker(
+            total=total,
+            description=description,
+            unit=unit,
+            show_rate=show_rate,
+            show_eta=show_eta
+        )
+        
+        self.nested_indent = nested_indent
+        self._subtrackers: Dict[str, ProgressTracker] = {}
+        self._callbacks: List[Callable[[str, Dict[str, Any]], None]] = []
+        self._lock = threading.Lock()
+        
+        # Global state
+        self._enabled = config.enable_progress_bar if config else True
+        self._log_progress = False
+        
+        logger.debug(f"ProgressManager initialized with total={total}")
+    
+    def update(self, n: int = 1, **kwargs) -> None:
+        """Update main progress."""
+        self.main_tracker.update(n, **kwargs)
+        self._trigger_callbacks('main', self.main_tracker.get_status())
+    
+    def set_total(self, total: int) -> None:
+        """Set or update total items."""
+        self.main_tracker.total = total
+        self.main_tracker.metrics.total = total
+    
+    def create_subtracker(
+        self,
+        name: str,
+        total: Optional[int] = None,
+        description: str = "",
         **kwargs
-            Additional arguments for nested progress bar
-        """
-        if self.enable_bar and _HAS_TQDM:
-            nested_bar = tqdm(
+    ) -> ProgressTracker:
+        """Create nested progress tracker."""
+        with self._lock:
+            if name in self._subtrackers:
+                raise ProgressError(f"Subtracker '{name}' already exists")
+            
+            # Add indentation to description
+            if description and self.nested_indent:
+                description = self.nested_indent + description
+            
+            tracker = ProgressTracker(
                 total=total,
-                desc=description,
-                unit=kwargs.get('unit', self.unit),
-                leave=False,
-                position=len(self._nested_bars) + 1
+                description=description,
+                **kwargs
             )
-            self._nested_bars.append(nested_bar)
-        else:
-            nested_bar = None
-        
-        class NestedProgress:
-            def __init__(self, bar, parent_logger):
-                self.bar = bar
-                self.logger = parent_logger
-                self.current = 0
-                
-            def update(self, n=1, info=""):
-                self.current += n
-                if self.bar:
-                    self.bar.update(n)
-                    if info:
-                        self.bar.set_postfix_str(info)
             
-            def close(self):
-                if self.bar:
-                    self.bar.close()
-        
-        nested_progress = NestedProgress(nested_bar, self.logger)
-        
+            self._subtrackers[name] = tracker
+            logger.debug(f"Created subtracker: {name}")
+            return tracker
+    
+    def remove_subtracker(self, name: str) -> None:
+        """Remove nested progress tracker."""
+        with self._lock:
+            if name in self._subtrackers:
+                self._subtrackers[name].finish()
+                del self._subtrackers[name]
+    
+    def get_subtracker(self, name: str) -> Optional[ProgressTracker]:
+        """Get existing subtracker."""
+        return self._subtrackers.get(name)
+    
+    @contextmanager
+    def subprogress(self, name: str, total: Optional[int] = None, description: str = ""):
+        """Context manager for nested progress."""
+        tracker = self.create_subtracker(name, total, description)
         try:
-            yield nested_progress
+            yield tracker
         finally:
-            nested_progress.close()
-            if nested_bar in self._nested_bars:
-                self._nested_bars.remove(nested_bar)
+            self.remove_subtracker(name)
     
-    def add_update_callback(self, callback: Callable) -> None:
-        """Add callback function called on each update.
-        
-        Parameters
-        ----------
-        callback : Callable
-            Function with signature: callback(current, total, info, **kwargs)
-        """
-        self._update_callbacks.append(callback)
+    def pause_all(self) -> None:
+        """Pause all progress trackers."""
+        self.main_tracker.pause()
+        for tracker in self._subtrackers.values():
+            tracker.pause()
     
-    def add_completion_callback(self, callback: Callable) -> None:
-        """Add callback function called on completion.
-        
-        Parameters
-        ----------
-        callback : Callable
-            Function with signature: callback(stats)
-        """
-        self._completion_callbacks.append(callback)
+    def resume_all(self) -> None:
+        """Resume all progress trackers."""
+        self.main_tracker.resume()
+        for tracker in self._subtrackers.values():
+            tracker.resume()
     
-    def get_stats(self) -> Dict[str, Any]:
-        """Get progress statistics.
+    def finish(self) -> None:
+        """Complete all progress tracking."""
+        # Finish subtrackers first
+        for tracker in self._subtrackers.values():
+            tracker.finish()
         
-        Returns
-        -------
-        Dict[str, Any]
-            Progress statistics
-        """
-        current_time = time.perf_counter()
-        if self.start_time:
-            self.stats['total_time'] = current_time - self.start_time
+        # Finish main tracker
+        self.main_tracker.finish()
         
-        return self.stats.copy()
+        # Clear subtrackers
+        self._subtrackers.clear()
     
-    def get_rate(self) -> float:
-        """Get current processing rate (items per second).
-        
-        Returns
-        -------
-        float
-            Processing rate
-        """
-        if self.start_time and self.current > 0:
-            elapsed = time.perf_counter() - self.start_time
-            return self.current / elapsed if elapsed > 0 else 0
-        return 0
+    def add_callback(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
+        """Add progress update callback."""
+        self._callbacks.append(callback)
     
-    def get_eta(self) -> Optional[float]:
-        """Get estimated time to completion.
+    def enable_logging(self, log_interval: int = 10) -> None:
+        """Enable progress logging."""
+        self._log_progress = True
         
-        Returns
-        -------
-        Optional[float]
-            Estimated seconds remaining, or None if cannot estimate
-        """
-        if not self.total or not self.time_remaining:
-            return None
+        def log_callback(tracker_name: str, status: Dict[str, Any]) -> None:
+            if status['current'] % log_interval == 0:
+                percentage = status.get('percentage', 0) or 0
+                logger.info(f"{tracker_name}: {status['current']}/{status['total']} ({percentage:.1f}%)")
         
-        rate = self.get_rate()
-        if rate > 0 and self.current < self.total:
-            remaining_items = self.total - self.current
-            return remaining_items / rate
-        
-        return None
+        self.add_callback(log_callback)
     
-    def _update_statistics(self, current_time: float) -> None:
-        """Update internal statistics."""
-        if self.start_time:
-            self.stats['total_time'] = current_time - self.start_time
-            if self.stats['total_time'] > 0:
-                self.stats['average_rate'] = self.current / self.stats['total_time']
-        
-        self.stats['estimated_remaining'] = self.get_eta()
-    
-    def _log_progress(self, info: str = "") -> None:
-        """Log current progress."""
-        if self.total:
-            percent = (self.current / self.total) * 100
-            rate = self.get_rate()
-            eta = self.get_eta()
-            
-            msg = f"Progress: {self.current}/{self.total} ({percent:.1f}%) - {rate:.2f} {self.unit}/s"
-            
-            if eta is not None:
-                msg += f" - ETA: {self._format_duration(eta)}"
-            
-            if info:
-                msg += f" - {info}"
-        else:
-            rate = self.get_rate()
-            msg = f"Progress: {self.current} - {rate:.2f} {self.unit}/s"
-            if info:
-                msg += f" - {info}"
-        
-        self.logger.info(msg)
-    
-    def _on_completion(self) -> None:
-        """Handle completion."""
-        final_stats = self.get_stats()
-        
-        # Call completion callbacks
-        for callback in self._completion_callbacks:
+    def _trigger_callbacks(self, tracker_name: str, status: Dict[str, Any]) -> None:
+        """Trigger progress callbacks."""
+        for callback in self._callbacks:
             try:
-                callback(final_stats)
+                callback(tracker_name, status)
             except Exception as e:
-                self.logger.warning(f"Completion callback failed: {e}")
-        
-        self.logger.info(f"Completed: {self.description}")
-        self.logger.info(f"Final stats: {final_stats}")
+                logger.error(f"Progress callback failed: {e}")
     
-    def _format_duration(self, seconds: float) -> str:
-        """Format duration in human readable format."""
-        if seconds < 60:
-            return f"{seconds:.1f}s"
-        elif seconds < 3600:
-            minutes = seconds // 60
-            secs = seconds % 60
-            return f"{minutes:.0f}m {secs:.0f}s"
+    def get_status(self) -> Dict[str, Any]:
+        """Get comprehensive progress status."""
+        status = {
+            'main': self.main_tracker.get_status(),
+            'subtrackers': {
+                name: tracker.get_status() 
+                for name, tracker in self._subtrackers.items()
+            },
+            'enabled': self._enabled,
+            'callback_count': len(self._callbacks),
+        }
+        
+        # Calculate overall progress
+        if status['main']['total']:
+            status['overall_percentage'] = status['main']['percentage']
         else:
-            hours = seconds // 3600
-            minutes = (seconds % 3600) // 60
-            return f"{hours:.0f}h {minutes:.0f}m"
-
-
-class MultiStageProgress:
-    """Progress manager for multi-stage operations.
+            status['overall_percentage'] = None
+        
+        return status
     
-    Manages progress across multiple stages with different totals and descriptions.
+    def export_progress(self) -> Dict[str, Any]:
+        """Export progress data for persistence."""
+        return {
+            'timestamp': time.time(),
+            'main_progress': {
+                'current': self.main_tracker.metrics.current,
+                'total': self.main_tracker.total,
+                'elapsed': self.main_tracker.metrics.elapsed,
+            },
+            'subtrackers': {
+                name: {
+                    'current': tracker.metrics.current,
+                    'total': tracker.total,
+                    'description': tracker.description,
+                }
+                for name, tracker in self._subtrackers.items()
+            }
+        }
     
-    Parameters
-    ----------
-    stages : List[Dict[str, Any]]
-        List of stage definitions with 'name', 'total', and optional 'weight'
-    """
-    
-    def __init__(self, stages: list):
-        self.stages = stages
-        self.current_stage = 0
-        self.stage_managers = []
-        self.overall_progress = None
+    def import_progress(self, data: Dict[str, Any]) -> None:
+        """Import progress data from persistence."""
+        if 'main_progress' in data:
+            main_data = data['main_progress']
+            if main_data.get('current'):
+                self.main_tracker.set_current(main_data['current'])
+            if main_data.get('total'):
+                self.set_total(main_data['total'])
         
-        # Calculate overall total with weights
-        self.overall_total = 0
-        for stage in stages:
-            weight = stage.get('weight', 1.0)
-            total = stage.get('total', 100)
-            self.overall_total += total * weight
-        
-        self.logger = logging.getLogger(self.__class__.__name__)
-    
-    def start(self) -> None:
-        """Start multi-stage progress tracking."""
-        self.overall_progress = ProgressManager(
-            total=int(self.overall_total),
-            description="Overall Progress",
-            unit="ops"
-        )
-        self.overall_progress.start()
-        
-        self.logger.info(f"Starting multi-stage progress: {len(self.stages)} stages")
-    
-    def next_stage(self) -> ProgressManager:
-        """Move to next stage and return its progress manager.
-        
-        Returns
-        -------
-        ProgressManager
-            Progress manager for current stage
-        """
-        if self.current_stage >= len(self.stages):
-            raise ProcessingError("No more stages available")
-        
-        stage = self.stages[self.current_stage]
-        stage_manager = ProgressManager(
-            total=stage.get('total'),
-            description=stage.get('name', f"Stage {self.current_stage + 1}"),
-            unit=stage.get('unit', 'it')
-        )
-        
-        # Add callback to update overall progress
-        weight = stage.get('weight', 1.0)
-        def update_overall(current, total, info, **kwargs):
-            if total and self.overall_progress:
-                stage_contribution = (current / total) * (total * weight)
-                # Update overall based on completed stages plus current stage progress
-                completed_contribution = sum(
-                    s.get('total', 100) * s.get('weight', 1.0) 
-                    for s in self.stages[:self.current_stage]
-                )
-                overall_current = int(completed_contribution + stage_contribution)
-                self.overall_progress.current = overall_current
-                if self.overall_progress._pbar:
-                    self.overall_progress._pbar.n = overall_current
-                    self.overall_progress._pbar.refresh()
-        
-        stage_manager.add_update_callback(update_overall)
-        self.stage_managers.append(stage_manager)
-        
-        stage_manager.start()
-        self.current_stage += 1
-        
-        return stage_manager
-    
-    def close(self) -> None:
-        """Close all progress managers."""
-        for manager in self.stage_managers:
-            manager.close()
-        
-        if self.overall_progress:
-            self.overall_progress.close()
+        if 'subtrackers' in data:
+            for name, tracker_data in data['subtrackers'].items():
+                if name not in self._subtrackers:
+                    self.create_subtracker(
+                        name,
+                        total=tracker_data.get('total'),
+                        description=tracker_data.get('description', '')
+                    )
+                if tracker_data.get('current'):
+                    self._subtrackers[name].set_current(tracker_data['current'])
     
     def __enter__(self):
         """Context manager entry."""
-        self.start()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        self.close()
+        self.finish()

@@ -1,602 +1,468 @@
 """
-Cache management for processing operations.
+Cache manager for efficient data storage and retrieval.
+
+Provides multi-tier caching with configurable backends, automatic cleanup,
+and comprehensive cache management features for processing operations.
 """
 
-import os
-import gc
-import json
+import time
 import pickle
 import hashlib
-import tempfile
-import time
-from typing import Any, Dict, Optional, Union, Callable, List, Tuple
-from pathlib import Path
-import logging
 import threading
+from typing import Dict, Any, Optional, Union, Callable, List, Tuple
+from dataclasses import dataclass, field
+from pathlib import Path
 from collections import OrderedDict
+import logging
 
-import numpy as np
+from .exceptions import CacheError
+from ...config.settings import ProcessingConfig
 
-from ...base.exceptions import ProcessingError
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CacheEntry:
+    """Cache entry with metadata."""
+    data: Any
+    timestamp: float = field(default_factory=time.time)
+    access_count: int = 0
+    last_access: float = field(default_factory=time.time)
+    size_bytes: int = 0
+    ttl: Optional[float] = None
+    tags: List[str] = field(default_factory=list)
+    
+    @property
+    def is_expired(self) -> bool:
+        """Check if entry is expired."""
+        if self.ttl is None:
+            return False
+        return (time.time() - self.timestamp) > self.ttl
+    
+    @property
+    def age(self) -> float:
+        """Age in seconds."""
+        return time.time() - self.timestamp
+
+
+@dataclass
+class CacheStats:
+    """Cache statistics."""
+    hits: int = 0
+    misses: int = 0
+    evictions: int = 0
+    size_bytes: int = 0
+    entry_count: int = 0
+    
+    @property
+    def hit_rate(self) -> float:
+        """Calculate hit rate."""
+        total = self.hits + self.misses
+        return self.hits / total if total > 0 else 0.0
 
 
 class CacheManager:
-    """Manager for caching intermediate processing results.
+    """Multi-tier cache manager with configurable backends.
     
-    Provides both in-memory and disk-based caching with:
-    - LRU eviction policy
-    - Size limits
-    - Automatic cleanup
-    - Thread safety
-    - Serialization support for various data types
-    
-    Parameters
-    ----------
-    cache_dir : str or Path, optional
-        Directory for disk cache (default: temp directory)
-    max_size_mb : int, optional
-        Maximum cache size in MB (default: 1024)
-    max_memory_items : int, optional
-        Maximum number of items in memory cache (default: 100)
-    cleanup_interval : int, optional
-        Cleanup interval in seconds (default: 300)
-    enable_disk_cache : bool, optional
-        Whether to enable disk caching (default: True)
-    enable_memory_cache : bool, optional
-        Whether to enable memory caching (default: True)
+    Features:
+    - LRU/LFU eviction policies
+    - TTL-based expiration
+    - Disk persistence with memory overlay
+    - Thread-safe operations
+    - Comprehensive statistics
     """
     
     def __init__(
         self,
         cache_dir: Optional[Union[str, Path]] = None,
-        max_size_mb: int = 1024,
-        max_memory_items: int = 100,
-        cleanup_interval: int = 300,
+        max_size_mb: int = 512,
+        max_entries: int = 1000,
+        default_ttl: Optional[float] = None,
+        eviction_policy: str = "lru",
         enable_disk_cache: bool = True,
-        enable_memory_cache: bool = True
+        cleanup_interval: float = 300.0,
+        compression: bool = False,
+        config: Optional[ProcessingConfig] = None
     ):
-        # Cache directories
-        if cache_dir is None:
-            self.cache_dir = Path(tempfile.gettempdir()) / "lensing_ssc_cache"
-        else:
-            self.cache_dir = Path(cache_dir)
+        """Initialize cache manager.
         
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        Parameters
+        ----------
+        cache_dir : str or Path, optional
+            Directory for disk cache
+        max_size_mb : int
+            Maximum cache size in MB
+        max_entries : int
+            Maximum number of cache entries
+        default_ttl : float, optional
+            Default TTL in seconds
+        eviction_policy : str
+            Eviction policy ("lru", "lfu", "fifo")
+        enable_disk_cache : bool
+            Enable disk-based caching
+        cleanup_interval : float
+            Cleanup interval in seconds
+        compression : bool
+            Enable compression for disk cache
+        config : ProcessingConfig, optional
+            Configuration object
+        """
+        # Load from config
+        if config:
+            cache_dir = cache_dir or config.cache_dir
+            max_size_mb = max_size_mb or config.cache_size_mb
+            max_entries = max_entries or config.max_cache_entries
         
-        # Cache settings
+        self.cache_dir = Path(cache_dir) if cache_dir else None
         self.max_size_bytes = max_size_mb * 1024 * 1024
-        self.max_memory_items = max_memory_items
-        self.cleanup_interval = cleanup_interval
+        self.max_entries = max_entries
+        self.default_ttl = default_ttl
+        self.eviction_policy = eviction_policy.lower()
         self.enable_disk_cache = enable_disk_cache
-        self.enable_memory_cache = enable_memory_cache
+        self.cleanup_interval = cleanup_interval
+        self.compression = compression
         
-        # Memory cache (LRU)
-        self._memory_cache = OrderedDict()
-        self._memory_cache_size = 0
-        
-        # Disk cache tracking
-        self._disk_cache_index = {}
-        self._disk_cache_size = 0
-        
-        # Thread safety
+        # Initialize storage
+        self._memory_cache: OrderedDict[str, CacheEntry] = OrderedDict()
+        self._disk_cache_index: Dict[str, Path] = {}
         self._lock = threading.RLock()
+        self._stats = CacheStats()
         
-        # Cleanup tracking
-        self._last_cleanup = time.time()
+        # Setup disk cache
+        if self.enable_disk_cache and self.cache_dir:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self._load_disk_index()
         
-        # Statistics
-        self.stats = {
-            'memory_hits': 0,
-            'memory_misses': 0,
-            'disk_hits': 0,
-            'disk_misses': 0,
-            'evictions': 0,
-            'errors': 0
-        }
+        # Cleanup timer
+        self._cleanup_timer: Optional[threading.Timer] = None
+        self._start_cleanup_timer()
         
-        self.logger = logging.getLogger(self.__class__.__name__)
-        
-        # Load existing disk cache index
-        self._load_disk_index()
-        
-        # Perform initial cleanup
-        self._cleanup_if_needed()
+        logger.debug(f"CacheManager initialized: {max_size_mb}MB, {max_entries} entries")
     
     def get(self, key: str, default: Any = None) -> Any:
-        """Get item from cache.
-        
-        Parameters
-        ----------
-        key : str
-            Cache key
-        default : Any, optional
-            Default value if key not found
+        """Get value from cache."""
+        with self._lock:
+            # Check memory cache first
+            if key in self._memory_cache:
+                entry = self._memory_cache[key]
+                
+                if entry.is_expired:
+                    self._remove_entry(key)
+                    self._stats.misses += 1
+                    return default
+                
+                # Update access info
+                entry.access_count += 1
+                entry.last_access = time.time()
+                
+                # Move to end for LRU
+                if self.eviction_policy == "lru":
+                    self._memory_cache.move_to_end(key)
+                
+                self._stats.hits += 1
+                return entry.data
             
-        Returns
-        -------
-        Any
-            Cached value or default
-        """
-        try:
-            with self._lock:
-                # Check memory cache first
-                if self.enable_memory_cache and key in self._memory_cache:
-                    # Move to end (most recently used)
-                    value = self._memory_cache.pop(key)
-                    self._memory_cache[key] = value
-                    self.stats['memory_hits'] += 1
-                    self.logger.debug(f"Memory cache hit: {key}")
-                    return value
-                
-                # Check disk cache
-                if self.enable_disk_cache and key in self._disk_cache_index:
-                    try:
-                        value = self._load_from_disk(key)
-                        
-                        # Add to memory cache if enabled
-                        if self.enable_memory_cache:
-                            self._add_to_memory_cache(key, value)
-                        
-                        self.stats['disk_hits'] += 1
-                        self.logger.debug(f"Disk cache hit: {key}")
-                        return value
-                    except Exception as e:
-                        self.logger.warning(f"Failed to load from disk cache: {e}")
-                        # Remove invalid entry
-                        self._remove_from_disk_index(key)
-                
-                # Cache miss
-                if key in self._memory_cache:
-                    self.stats['memory_misses'] += 1
-                else:
-                    self.stats['disk_misses'] += 1
-                
-                return default
-                
-        except Exception as e:
-            self.stats['errors'] += 1
-            self.logger.error(f"Cache get error for key {key}: {e}")
+            # Check disk cache
+            if self.enable_disk_cache and key in self._disk_cache_index:
+                try:
+                    data = self._load_from_disk(key)
+                    if data is not None:
+                        # Promote to memory cache
+                        self.put(key, data)
+                        self._stats.hits += 1
+                        return data
+                except Exception as e:
+                    logger.warning(f"Failed to load from disk cache: {e}")
+                    self._disk_cache_index.pop(key, None)
+            
+            self._stats.misses += 1
             return default
     
-    def put(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        """Put item in cache.
-        
-        Parameters
-        ----------
-        key : str
-            Cache key
-        value : Any
-            Value to cache
-        ttl : int, optional
-            Time to live in seconds
+    def put(
+        self,
+        key: str,
+        value: Any,
+        ttl: Optional[float] = None,
+        tags: Optional[List[str]] = None
+    ) -> None:
+        """Put value in cache."""
+        with self._lock:
+            ttl = ttl or self.default_ttl
+            tags = tags or []
             
-        Returns
-        -------
-        bool
-            True if successfully cached
-        """
-        try:
-            with self._lock:
-                current_time = time.time()
-                
-                # Calculate value size
-                value_size = self._calculate_size(value)
-                
-                # Add to memory cache if enabled and fits
-                if self.enable_memory_cache:
-                    if value_size < self.max_size_bytes * 0.1:  # Don't cache huge items in memory
-                        self._add_to_memory_cache(key, value, value_size)
-                
-                # Add to disk cache if enabled
-                if self.enable_disk_cache:
-                    self._save_to_disk(key, value, ttl, current_time)
-                
-                # Cleanup if needed
-                self._cleanup_if_needed()
-                
-                return True
-                
-        except Exception as e:
-            self.stats['errors'] += 1
-            self.logger.error(f"Cache put error for key {key}: {e}")
-            return False
+            # Calculate size
+            try:
+                size_bytes = len(pickle.dumps(value))
+            except Exception:
+                size_bytes = 0
+            
+            # Create entry
+            entry = CacheEntry(
+                data=value,
+                size_bytes=size_bytes,
+                ttl=ttl,
+                tags=tags
+            )
+            
+            # Check if we need to evict
+            self._ensure_capacity(size_bytes)
+            
+            # Store in memory
+            self._memory_cache[key] = entry
+            self._stats.size_bytes += size_bytes
+            self._stats.entry_count += 1
+            
+            # Store to disk if enabled
+            if self.enable_disk_cache:
+                try:
+                    self._save_to_disk(key, value)
+                except Exception as e:
+                    logger.warning(f"Failed to save to disk cache: {e}")
     
     def delete(self, key: str) -> bool:
-        """Delete item from cache.
-        
-        Parameters
-        ----------
-        key : str
-            Cache key
+        """Delete entry from cache."""
+        with self._lock:
+            removed = False
             
-        Returns
-        -------
-        bool
-            True if item was deleted
-        """
-        try:
-            with self._lock:
-                deleted = False
-                
-                # Remove from memory cache
-                if key in self._memory_cache:
-                    value = self._memory_cache.pop(key)
-                    self._memory_cache_size -= self._calculate_size(value)
-                    deleted = True
-                
-                # Remove from disk cache
-                if key in self._disk_cache_index:
-                    self._remove_from_disk_cache(key)
-                    deleted = True
-                
-                return deleted
-                
-        except Exception as e:
-            self.stats['errors'] += 1
-            self.logger.error(f"Cache delete error for key {key}: {e}")
-            return False
+            # Remove from memory
+            if key in self._memory_cache:
+                entry = self._memory_cache.pop(key)
+                self._stats.size_bytes -= entry.size_bytes
+                self._stats.entry_count -= 1
+                removed = True
+            
+            # Remove from disk
+            if key in self._disk_cache_index:
+                disk_path = self._disk_cache_index.pop(key)
+                try:
+                    if disk_path.exists():
+                        disk_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete disk cache file: {e}")
+                removed = True
+            
+            return removed
     
     def clear(self) -> None:
         """Clear all cache entries."""
-        try:
-            with self._lock:
-                # Clear memory cache
-                self._memory_cache.clear()
-                self._memory_cache_size = 0
-                
-                # Clear disk cache
-                for key in list(self._disk_cache_index.keys()):
-                    self._remove_from_disk_cache(key)
-                
-                self.logger.info("Cache cleared")
-                
-        except Exception as e:
-            self.stats['errors'] += 1
-            self.logger.error(f"Cache clear error: {e}")
-    
-    def cleanup(self) -> Dict[str, int]:
-        """Perform cleanup and return statistics.
-        
-        Returns
-        -------
-        Dict[str, int]
-            Cleanup statistics
-        """
-        try:
-            with self._lock:
-                stats = {
-                    'memory_evicted': 0,
-                    'disk_evicted': 0,
-                    'expired_removed': 0,
-                    'invalid_removed': 0
-                }
-                
-                current_time = time.time()
-                
-                # Clean expired disk entries
-                expired_keys = []
-                for key, info in self._disk_cache_index.items():
-                    if info.get('ttl') and current_time > info['created'] + info['ttl']:
-                        expired_keys.append(key)
-                
-                for key in expired_keys:
-                    self._remove_from_disk_cache(key)
-                    stats['expired_removed'] += 1
-                
-                # Clean invalid disk entries
-                invalid_keys = []
-                for key, info in self._disk_cache_index.items():
-                    cache_file = self.cache_dir / info['filename']
-                    if not cache_file.exists():
-                        invalid_keys.append(key)
-                
-                for key in invalid_keys:
-                    self._remove_from_disk_index(key)
-                    stats['invalid_removed'] += 1
-                
-                # Evict from memory cache if over limit
-                while len(self._memory_cache) > self.max_memory_items:
-                    # Remove least recently used
-                    key, value = self._memory_cache.popitem(last=False)
-                    self._memory_cache_size -= self._calculate_size(value)
-                    stats['memory_evicted'] += 1
-                    self.stats['evictions'] += 1
-                
-                # Evict from disk cache if over size limit
-                while self._disk_cache_size > self.max_size_bytes:
-                    # Find oldest entry
-                    oldest_key = min(
-                        self._disk_cache_index.keys(),
-                        key=lambda k: self._disk_cache_index[k]['created']
-                    )
-                    self._remove_from_disk_cache(oldest_key)
-                    stats['disk_evicted'] += 1
-                    self.stats['evictions'] += 1
-                
-                self._last_cleanup = current_time
-                
-                if any(stats.values()):
-                    self.logger.info(f"Cache cleanup completed: {stats}")
-                
-                return stats
-                
-        except Exception as e:
-            self.stats['errors'] += 1
-            self.logger.error(f"Cache cleanup error: {e}")
-            return {}
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get cache statistics.
-        
-        Returns
-        -------
-        Dict[str, Any]
-            Cache statistics
-        """
         with self._lock:
-            memory_size_mb = self._memory_cache_size / (1024 * 1024)
-            disk_size_mb = self._disk_cache_size / (1024 * 1024)
+            self._memory_cache.clear()
+            self._disk_cache_index.clear()
+            self._stats = CacheStats()
             
-            return {
-                **self.stats,
-                'memory_items': len(self._memory_cache),
-                'memory_size_mb': memory_size_mb,
-                'disk_items': len(self._disk_cache_index),
-                'disk_size_mb': disk_size_mb,
-                'total_size_mb': memory_size_mb + disk_size_mb,
-                'hit_rate': self._calculate_hit_rate(),
-                'last_cleanup': self._last_cleanup
-            }
+            # Clear disk cache
+            if self.enable_disk_cache and self.cache_dir:
+                try:
+                    for file_path in self.cache_dir.glob("cache_*"):
+                        file_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to clear disk cache: {e}")
     
-    def contains(self, key: str) -> bool:
-        """Check if key exists in cache.
-        
-        Parameters
-        ----------
-        key : str
-            Cache key
-            
-        Returns
-        -------
-        bool
-            True if key exists
-        """
+    def cleanup_expired(self) -> int:
+        """Remove expired entries."""
         with self._lock:
-            return (
-                (self.enable_memory_cache and key in self._memory_cache) or
-                (self.enable_disk_cache and key in self._disk_cache_index)
+            expired_keys = []
+            
+            for key, entry in self._memory_cache.items():
+                if entry.is_expired:
+                    expired_keys.append(key)
+            
+            for key in expired_keys:
+                self._remove_entry(key)
+            
+            logger.debug(f"Cleaned up {len(expired_keys)} expired entries")
+            return len(expired_keys)
+    
+    def invalidate_by_tags(self, tags: List[str]) -> int:
+        """Invalidate entries by tags."""
+        with self._lock:
+            to_remove = []
+            
+            for key, entry in self._memory_cache.items():
+                if any(tag in entry.tags for tag in tags):
+                    to_remove.append(key)
+            
+            for key in to_remove:
+                self.delete(key)
+            
+            return len(to_remove)
+    
+    def get_stats(self) -> CacheStats:
+        """Get cache statistics."""
+        with self._lock:
+            return CacheStats(
+                hits=self._stats.hits,
+                misses=self._stats.misses,
+                evictions=self._stats.evictions,
+                size_bytes=self._stats.size_bytes,
+                entry_count=len(self._memory_cache)
             )
     
-    def keys(self) -> List[str]:
-        """Get all cache keys.
-        
-        Returns
-        -------
-        List[str]
-            List of cache keys
-        """
+    def get_memory_usage(self) -> Dict[str, Any]:
+        """Get memory usage details."""
         with self._lock:
-            memory_keys = set(self._memory_cache.keys()) if self.enable_memory_cache else set()
-            disk_keys = set(self._disk_cache_index.keys()) if self.enable_disk_cache else set()
-            return list(memory_keys | disk_keys)
-    
-    def memoize(self, ttl: Optional[int] = None):
-        """Decorator for memoizing function results.
-        
-        Parameters
-        ----------
-        ttl : int, optional
-            Time to live for cached results
-            
-        Returns
-        -------
-        Callable
-            Decorated function
-        """
-        def decorator(func: Callable) -> Callable:
-            def wrapper(*args, **kwargs):
-                # Create cache key from function name and arguments
-                key_data = {
-                    'func': func.__name__,
-                    'args': args,
-                    'kwargs': sorted(kwargs.items())
-                }
-                key = self._create_key(key_data)
-                
-                # Try to get from cache
-                result = self.get(key)
-                if result is not None:
-                    return result
-                
-                # Compute and cache result
-                result = func(*args, **kwargs)
-                self.put(key, result, ttl=ttl)
-                return result
-            
-            return wrapper
-        return decorator
-    
-    def _add_to_memory_cache(self, key: str, value: Any, size: Optional[int] = None) -> None:
-        """Add item to memory cache."""
-        if size is None:
-            size = self._calculate_size(value)
-        
-        # Remove if already exists
-        if key in self._memory_cache:
-            old_value = self._memory_cache.pop(key)
-            self._memory_cache_size -= self._calculate_size(old_value)
-        
-        self._memory_cache[key] = value
-        self._memory_cache_size += size
-        
-        # Evict if necessary
-        while (len(self._memory_cache) > self.max_memory_items or 
-               self._memory_cache_size > self.max_size_bytes * 0.5):
-            if not self._memory_cache:
-                break
-            old_key, old_value = self._memory_cache.popitem(last=False)
-            self._memory_cache_size -= self._calculate_size(old_value)
-            self.stats['evictions'] += 1
-    
-    def _save_to_disk(self, key: str, value: Any, ttl: Optional[int], current_time: float) -> None:
-        """Save item to disk cache."""
-        # Generate filename
-        filename = self._create_filename(key)
-        cache_file = self.cache_dir / filename
-        
-        # Serialize and save
-        try:
-            if isinstance(value, np.ndarray):
-                # Use numpy's save for arrays
-                np.save(cache_file.with_suffix('.npy'), value)
-                serialization = 'numpy'
-            else:
-                # Use pickle for other objects
-                with open(cache_file.with_suffix('.pkl'), 'wb') as f:
-                    pickle.dump(value, f, protocol=pickle.HIGHEST_PROTOCOL)
-                serialization = 'pickle'
-            
-            # Update index
-            file_size = cache_file.with_suffix(f'.{serialization[0:3]}').stat().st_size
-            
-            # Remove old entry if exists
-            if key in self._disk_cache_index:
-                self._remove_from_disk_cache(key)
-            
-            self._disk_cache_index[key] = {
-                'filename': filename,
-                'serialization': serialization,
-                'size': file_size,
-                'created': current_time,
-                'ttl': ttl
+            return {
+                'size_mb': self._stats.size_bytes / (1024 * 1024),
+                'max_size_mb': self.max_size_bytes / (1024 * 1024),
+                'utilization': self._stats.size_bytes / self.max_size_bytes,
+                'entry_count': len(self._memory_cache),
+                'max_entries': self.max_entries,
             }
-            
-            self._disk_cache_size += file_size
-            self._save_disk_index()
-            
-        except Exception as e:
-            self.logger.error(f"Failed to save to disk cache: {e}")
-            raise
     
-    def _load_from_disk(self, key: str) -> Any:
-        """Load item from disk cache."""
-        info = self._disk_cache_index[key]
-        cache_file = self.cache_dir / info['filename']
+    def _ensure_capacity(self, new_size: int) -> None:
+        """Ensure cache has capacity for new entry."""
+        # Check size limit
+        while (self._stats.size_bytes + new_size > self.max_size_bytes and 
+               self._memory_cache):
+            self._evict_one()
         
-        try:
-            if info['serialization'] == 'numpy':
-                return np.load(cache_file.with_suffix('.npy'))
-            else:
-                with open(cache_file.with_suffix('.pkl'), 'rb') as f:
-                    return pickle.load(f)
-        except Exception as e:
-            self.logger.error(f"Failed to load from disk cache: {e}")
-            raise
+        # Check entry count limit
+        while len(self._memory_cache) >= self.max_entries:
+            self._evict_one()
     
-    def _remove_from_disk_cache(self, key: str) -> None:
-        """Remove item from disk cache."""
-        if key not in self._disk_cache_index:
+    def _evict_one(self) -> None:
+        """Evict one entry based on policy."""
+        if not self._memory_cache:
             return
         
-        info = self._disk_cache_index[key]
-        cache_file = self.cache_dir / info['filename']
+        if self.eviction_policy == "lru":
+            # Remove least recently used (first in OrderedDict)
+            key = next(iter(self._memory_cache))
+        elif self.eviction_policy == "lfu":
+            # Remove least frequently used
+            key = min(self._memory_cache.keys(), 
+                     key=lambda k: self._memory_cache[k].access_count)
+        elif self.eviction_policy == "fifo":
+            # Remove oldest entry
+            key = min(self._memory_cache.keys(),
+                     key=lambda k: self._memory_cache[k].timestamp)
+        else:
+            # Default to LRU
+            key = next(iter(self._memory_cache))
         
-        # Remove files
-        for ext in ['.npy', '.pkl']:
-            file_path = cache_file.with_suffix(ext)
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except Exception as e:
-                    self.logger.warning(f"Failed to remove cache file {file_path}: {e}")
-        
-        # Update size tracking
-        self._disk_cache_size -= info['size']
-        
-        # Remove from index
-        del self._disk_cache_index[key]
-        self._save_disk_index()
+        self._remove_entry(key)
+        self._stats.evictions += 1
     
-    def _remove_from_disk_index(self, key: str) -> None:
-        """Remove key from disk index without removing files."""
-        if key in self._disk_cache_index:
-            info = self._disk_cache_index[key]
-            self._disk_cache_size -= info['size']
-            del self._disk_cache_index[key]
-            self._save_disk_index()
+    def _remove_entry(self, key: str) -> None:
+        """Remove entry from memory cache."""
+        if key in self._memory_cache:
+            entry = self._memory_cache.pop(key)
+            self._stats.size_bytes -= entry.size_bytes
+            self._stats.entry_count -= 1
+    
+    def _save_to_disk(self, key: str, value: Any) -> None:
+        """Save entry to disk cache."""
+        if not self.cache_dir:
+            return
+        
+        # Generate filename
+        key_hash = hashlib.md5(key.encode()).hexdigest()
+        filename = f"cache_{key_hash}.pkl"
+        if self.compression:
+            filename += ".gz"
+        
+        file_path = self.cache_dir / filename
+        
+        try:
+            if self.compression:
+                import gzip
+                with gzip.open(file_path, 'wb') as f:
+                    pickle.dump(value, f)
+            else:
+                with open(file_path, 'wb') as f:
+                    pickle.dump(value, f)
+            
+            self._disk_cache_index[key] = file_path
+            
+        except Exception as e:
+            logger.error(f"Failed to save to disk: {e}")
+            raise CacheError(f"Disk cache save failed: {e}")
+    
+    def _load_from_disk(self, key: str) -> Optional[Any]:
+        """Load entry from disk cache."""
+        if key not in self._disk_cache_index:
+            return None
+        
+        file_path = self._disk_cache_index[key]
+        if not file_path.exists():
+            self._disk_cache_index.pop(key, None)
+            return None
+        
+        try:
+            if self.compression:
+                import gzip
+                with gzip.open(file_path, 'rb') as f:
+                    return pickle.load(f)
+            else:
+                with open(file_path, 'rb') as f:
+                    return pickle.load(f)
+                    
+        except Exception as e:
+            logger.error(f"Failed to load from disk: {e}")
+            # Remove corrupted file
+            try:
+                file_path.unlink()
+                self._disk_cache_index.pop(key, None)
+            except Exception:
+                pass
+            return None
     
     def _load_disk_index(self) -> None:
         """Load disk cache index."""
-        index_file = self.cache_dir / 'cache_index.json'
+        if not self.cache_dir or not self.cache_dir.exists():
+            return
         
-        if index_file.exists():
-            try:
-                with open(index_file, 'r') as f:
-                    self._disk_cache_index = json.load(f)
-                
-                # Calculate total size
-                self._disk_cache_size = sum(
-                    info['size'] for info in self._disk_cache_index.values()
-                )
-                
-                self.logger.debug(f"Loaded disk cache index: {len(self._disk_cache_index)} items")
-                
-            except Exception as e:
-                self.logger.warning(f"Failed to load cache index: {e}")
-                self._disk_cache_index = {}
-                self._disk_cache_size = 0
+        pattern = "cache_*.pkl*"
+        for file_path in self.cache_dir.glob(pattern):
+            # Extract key hash from filename
+            parts = file_path.stem.split('_', 1)
+            if len(parts) == 2:
+                key_hash = parts[1]
+                # We can't reverse the hash, so we'll use the hash as key
+                # In practice, you'd store a mapping file
+                self._disk_cache_index[key_hash] = file_path
     
-    def _save_disk_index(self) -> None:
-        """Save disk cache index."""
-        index_file = self.cache_dir / 'cache_index.json'
-        
+    def _start_cleanup_timer(self) -> None:
+        """Start periodic cleanup timer."""
+        if self.cleanup_interval > 0:
+            self._cleanup_timer = threading.Timer(
+                self.cleanup_interval,
+                self._periodic_cleanup
+            )
+            self._cleanup_timer.daemon = True
+            self._cleanup_timer.start()
+    
+    def _periodic_cleanup(self) -> None:
+        """Periodic cleanup task."""
         try:
-            with open(index_file, 'w') as f:
-                json.dump(self._disk_cache_index, f, indent=2)
+            self.cleanup_expired()
         except Exception as e:
-            self.logger.error(f"Failed to save cache index: {e}")
+            logger.error(f"Cleanup failed: {e}")
+        finally:
+            # Schedule next cleanup
+            self._start_cleanup_timer()
     
-    def _cleanup_if_needed(self) -> None:
-        """Perform cleanup if interval has passed."""
-        current_time = time.time()
-        if current_time - self._last_cleanup > self.cleanup_interval:
-            self.cleanup()
-    
-    def _calculate_size(self, obj: Any) -> int:
-        """Calculate approximate size of object in bytes."""
-        try:
-            if isinstance(obj, np.ndarray):
-                return obj.nbytes
-            elif isinstance(obj, (str, bytes)):
-                return len(obj)
-            elif isinstance(obj, (list, tuple)):
-                return sum(self._calculate_size(item) for item in obj)
-            elif isinstance(obj, dict):
-                return sum(self._calculate_size(k) + self._calculate_size(v) for k, v in obj.items())
-            else:
-                # Fallback: use pickle size
-                return len(pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL))
-        except Exception:
-            return 1024  # Default estimate
-    
-    def _calculate_hit_rate(self) -> float:
-        """Calculate cache hit rate."""
-        total_hits = self.stats['memory_hits'] + self.stats['disk_hits']
-        total_requests = total_hits + self.stats['memory_misses'] + self.stats['disk_misses']
+    def get_status(self) -> Dict[str, Any]:
+        """Get cache manager status."""
+        stats = self.get_stats()
+        memory_usage = self.get_memory_usage()
         
-        if total_requests == 0:
-            return 0.0
-        
-        return total_hits / total_requests
+        return {
+            'stats': {
+                'hits': stats.hits,
+                'misses': stats.misses,
+                'hit_rate': stats.hit_rate,
+                'evictions': stats.evictions,
+            },
+            'memory': memory_usage,
+            'disk_cache_enabled': self.enable_disk_cache,
+            'disk_entries': len(self._disk_cache_index),
+            'eviction_policy': self.eviction_policy,
+            'default_ttl': self.default_ttl,
+        }
     
-    def _create_key(self, data: Any) -> str:
-        """Create cache key from data."""
-        # Create deterministic string representation
-        key_str = json.dumps(data, sort_keys=True, default=str)
-        
-        # Hash to create fixed-length key
-        return hashlib.md5(key_str.encode()).hexdigest()
-    
-    def _create_filename(self, key: str) -> str:
-        """Create filename from cache key."""
-        return f"cache_{key}"
+    def __del__(self):
+        """Cleanup on deletion."""
+        if self._cleanup_timer:
+            self._cleanup_timer.cancel()

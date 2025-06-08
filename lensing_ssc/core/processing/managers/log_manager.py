@@ -1,444 +1,412 @@
 """
-Centralized logging management for processing operations.
+Log manager for centralized logging configuration and management.
+
+Provides structured logging with multiple handlers, performance tracking,
+and comprehensive log management for processing operations.
 """
 
-import os
-import sys
-import time
 import logging
 import logging.handlers
-import threading
-from typing import Optional, Dict, Any, List, Union, TextIO
-from pathlib import Path
-from datetime import datetime
 import json
-import traceback
+import time
+import threading
+from typing import Dict, Any, Optional, Union, List, Callable
+from pathlib import Path
+from dataclasses import dataclass
+from contextlib import contextmanager
+import functools
 
-from ...base.exceptions import ProcessingError
+from .exceptions import LoggingError
+from ...config.settings import ProcessingConfig
+
+
+@dataclass
+class LogContext:
+    """Context information for structured logging."""
+    operation: Optional[str] = None
+    step: Optional[str] = None
+    request_id: Optional[str] = None
+    user_id: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+
+
+class JSONFormatter(logging.Formatter):
+    """JSON formatter for structured logging."""
+    
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            'timestamp': self.formatTime(record),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno,
+        }
+        
+        # Add context if available
+        if hasattr(record, 'context'):
+            context = record.context
+            if context.operation:
+                log_entry['operation'] = context.operation
+            if context.step:
+                log_entry['step'] = context.step
+            if context.request_id:
+                log_entry['request_id'] = context.request_id
+            if context.extra:
+                log_entry.update(context.extra)
+        
+        # Add exception info
+        if record.exc_info:
+            log_entry['exception'] = self.formatException(record.exc_info)
+        
+        return json.dumps(log_entry)
+
+
+class PerformanceLogger:
+    """Logger for performance metrics and timing."""
+    
+    def __init__(self, logger: logging.Logger):
+        self.logger = logger
+        self._timers: Dict[str, float] = {}
+        self._lock = threading.Lock()
+    
+    def start_timer(self, name: str) -> None:
+        """Start timing operation."""
+        with self._lock:
+            self._timers[name] = time.time()
+    
+    def end_timer(self, name: str, log_level: int = logging.INFO) -> float:
+        """End timing and log duration."""
+        with self._lock:
+            if name not in self._timers:
+                self.logger.warning(f"Timer '{name}' not found")
+                return 0.0
+            
+            duration = time.time() - self._timers.pop(name)
+            self.logger.log(log_level, f"Operation '{name}' completed in {duration:.3f}s")
+            return duration
+    
+    @contextmanager
+    def time_operation(self, name: str, log_level: int = logging.INFO):
+        """Context manager for timing operations."""
+        self.start_timer(name)
+        try:
+            yield
+        finally:
+            self.end_timer(name, log_level)
+    
+    def time_function(self, name: Optional[str] = None, log_level: int = logging.INFO):
+        """Decorator for timing functions."""
+        def decorator(func):
+            timer_name = name or f"{func.__module__}.{func.__name__}"
+            
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                with self.time_operation(timer_name, log_level):
+                    return func(*args, **kwargs)
+            return wrapper
+        return decorator
 
 
 class LogManager:
-    """Centralized logging manager for processing operations.
-    
-    Provides advanced logging features including:
-    - Multiple output destinations (console, file, rotating files)
-    - Structured logging with JSON format
-    - Performance tracking
-    - Error aggregation and reporting
-    - Context-aware logging
-    - Thread-safe operations
-    
-    Parameters
-    ----------
-    level : str, optional
-        Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    file_path : str or Path, optional
-        Log file path
-    console_output : bool, optional
-        Whether to output to console (default: True)
-    json_format : bool, optional
-        Whether to use JSON formatting (default: False)
-    max_file_size_mb : int, optional
-        Maximum log file size in MB before rotation (default: 10)
-    backup_count : int, optional
-        Number of backup files to keep (default: 5)
-    enable_performance_logging : bool, optional
-        Whether to enable performance metrics logging (default: True)
-    """
-    
-    # Log level mappings
-    LEVEL_MAP = {
-        'DEBUG': logging.DEBUG,
-        'INFO': logging.INFO,
-        'WARNING': logging.WARNING,
-        'ERROR': logging.ERROR,
-        'CRITICAL': logging.CRITICAL
-    }
+    """Centralized logging manager with structured logging support."""
     
     def __init__(
         self,
-        level: str = 'INFO',
+        level: Union[str, int] = logging.INFO,
         file_path: Optional[Union[str, Path]] = None,
-        console_output: bool = True,
-        json_format: bool = False,
-        max_file_size_mb: int = 10,
+        max_file_size: int = 10,  # MB
         backup_count: int = 5,
-        enable_performance_logging: bool = True
+        format_type: str = "standard",
+        enable_console: bool = True,
+        enable_performance: bool = True,
+        config: Optional[ProcessingConfig] = None
     ):
-        self.level = level.upper()
+        """Initialize log manager.
+        
+        Parameters
+        ----------
+        level : str or int
+            Logging level
+        file_path : str or Path, optional
+            Log file path
+        max_file_size : int
+            Max file size in MB for rotation
+        backup_count : int
+            Number of backup files to keep
+        format_type : str
+            Format type ("standard", "json", "detailed")
+        enable_console : bool
+            Enable console logging
+        enable_performance : bool
+            Enable performance logging
+        config : ProcessingConfig, optional
+            Configuration object
+        """
+        # Load from config
+        if config:
+            level = getattr(logging, config.log_level.upper(), logging.INFO)
+            file_path = file_path or config.log_file
+        
+        self.level = level if isinstance(level, int) else getattr(logging, level.upper())
         self.file_path = Path(file_path) if file_path else None
-        self.console_output = console_output
-        self.json_format = json_format
-        self.max_file_size_mb = max_file_size_mb
+        self.max_file_size = max_file_size * 1024 * 1024  # Convert to bytes
         self.backup_count = backup_count
-        self.enable_performance_logging = enable_performance_logging
+        self.format_type = format_type
+        self.enable_console = enable_console
+        self.enable_performance = enable_performance
         
-        # Internal state
-        self._loggers = {}
-        self._handlers = []
-        self._formatters = {}
-        self._start_time = time.time()
-        self._lock = threading.RLock()
+        # State
+        self._loggers: Dict[str, logging.Logger] = {}
+        self._handlers: List[logging.Handler] = []
+        self._context_stack: List[LogContext] = []
+        self._lock = threading.Lock()
         
-        # Performance tracking
-        self._performance_data = {}
-        self._error_counts = {}
-        self._log_counts = {'DEBUG': 0, 'INFO': 0, 'WARNING': 0, 'ERROR': 0, 'CRITICAL': 0}
+        # Setup root logger
+        self._setup_root_logger()
         
-        # Context stack for structured logging
-        self._context_stack = threading.local()
+        # Performance logger
+        if self.enable_performance:
+            self.performance = PerformanceLogger(self.get_logger('performance'))
         
-        # Initialize logging system
-        self._setup_logging()
-    
-    def _setup_logging(self) -> None:
-        """Setup the logging system with handlers and formatters."""
-        with self._lock:
-            # Create formatters
-            self._create_formatters()
-            
-            # Setup root logger
-            root_logger = logging.getLogger()
-            root_logger.setLevel(self.LEVEL_MAP[self.level])
-            
-            # Clear existing handlers to avoid duplicates
-            root_logger.handlers.clear()
-            
-            # Add console handler
-            if self.console_output:
-                self._add_console_handler(root_logger)
-            
-            # Add file handler
-            if self.file_path:
-                self._add_file_handler(root_logger)
-            
-            # Add custom handler for statistics
-            self._add_stats_handler(root_logger)
-            
-            # Set up performance logger if enabled
-            if self.enable_performance_logging:
-                self._setup_performance_logger()
-    
-    def _create_formatters(self) -> None:
-        """Create different log formatters."""
-        if self.json_format:
-            self._formatters['json'] = JsonFormatter()
-            self._formatters['console'] = JsonFormatter()
-        else:
-            # Standard text formatters
-            detailed_format = (
-                '%(asctime)s - %(name)s - %(levelname)s - '
-                '%(filename)s:%(lineno)d - %(funcName)s - %(message)s'
-            )
-            simple_format = '%(asctime)s - %(levelname)s - %(message)s'
-            
-            self._formatters['detailed'] = logging.Formatter(
-                detailed_format,
-                datefmt='%Y-%m-%d %H:%M:%S'
-            )
-            self._formatters['simple'] = logging.Formatter(
-                simple_format,
-                datefmt='%Y-%m-%d %H:%M:%S'
-            )
-            self._formatters['console'] = logging.Formatter(
-                '%(levelname)s - %(name)s - %(message)s'
-            )
-    
-    def _add_console_handler(self, logger: logging.Logger) -> None:
-        """Add console handler to logger."""
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(self.LEVEL_MAP[self.level])
-        console_handler.setFormatter(self._formatters['console'])
-        
-        logger.addHandler(console_handler)
-        self._handlers.append(console_handler)
-    
-    def _add_file_handler(self, logger: logging.Logger) -> None:
-        """Add file handler with rotation to logger."""
-        # Ensure log directory exists
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Use rotating file handler
-        file_handler = logging.handlers.RotatingFileHandler(
-            self.file_path,
-            maxBytes=self.max_file_size_mb * 1024 * 1024,
-            backupCount=self.backup_count
-        )
-        file_handler.setLevel(self.LEVEL_MAP[self.level])
-        
-        # Use detailed formatter for files
-        formatter_key = 'json' if self.json_format else 'detailed'
-        file_handler.setFormatter(self._formatters[formatter_key])
-        
-        logger.addHandler(file_handler)
-        self._handlers.append(file_handler)
-    
-    def _add_stats_handler(self, logger: logging.Logger) -> None:
-        """Add custom handler for collecting statistics."""
-        stats_handler = StatisticsHandler(self)
-        stats_handler.setLevel(logging.DEBUG)  # Capture all levels
-        
-        logger.addHandler(stats_handler)
-        self._handlers.append(stats_handler)
-    
-    def _setup_performance_logger(self) -> None:
-        """Setup separate logger for performance metrics."""
-        perf_logger = logging.getLogger('performance')
-        perf_logger.setLevel(logging.INFO)
-        perf_logger.propagate = False  # Don't propagate to root logger
-        
-        if self.file_path:
-            # Create separate performance log file
-            perf_file = self.file_path.parent / f"{self.file_path.stem}_performance.log"
-            perf_handler = logging.handlers.RotatingFileHandler(
-                perf_file,
-                maxBytes=self.max_file_size_mb * 1024 * 1024,
-                backupCount=self.backup_count
-            )
-            perf_handler.setFormatter(JsonFormatter())
-            perf_logger.addHandler(perf_handler)
-            self._handlers.append(perf_handler)
-        
-        self._loggers['performance'] = perf_logger
+        logging.info("LogManager initialized")
     
     def get_logger(self, name: str) -> logging.Logger:
-        """Get a named logger with proper configuration.
+        """Get or create logger with consistent configuration."""
+        if name not in self._loggers:
+            logger = logging.getLogger(name)
+            logger.setLevel(self.level)
+            logger.propagate = True
+            self._loggers[name] = logger
         
-        Parameters
-        ----------
-        name : str
-            Logger name
-            
-        Returns
-        -------
-        logging.Logger
-            Configured logger
-        """
-        with self._lock:
-            if name not in self._loggers:
-                logger = logging.getLogger(name)
-                # Logger inherits root configuration
-                self._loggers[name] = logger
-            
-            return self._loggers[name]
+        return self._loggers[name]
     
-    def log_performance(self, operation: str, duration: float, **metadata) -> None:
-        """Log performance metrics.
+    def set_level(self, level: Union[str, int]) -> None:
+        """Set logging level for all loggers."""
+        self.level = level if isinstance(level, int) else getattr(logging, level.upper())
         
-        Parameters
-        ----------
-        operation : str
-            Operation name
-        duration : float
-            Duration in seconds
-        **metadata
-            Additional metadata
-        """
-        if not self.enable_performance_logging:
+        # Update all loggers
+        for logger in self._loggers.values():
+            logger.setLevel(self.level)
+        
+        # Update root logger
+        logging.getLogger().setLevel(self.level)
+    
+    def add_file_handler(
+        self,
+        file_path: Union[str, Path],
+        level: Optional[Union[str, int]] = None,
+        format_type: Optional[str] = None
+    ) -> logging.Handler:
+        """Add file handler with rotation."""
+        file_path = Path(file_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        handler = logging.handlers.RotatingFileHandler(
+            file_path,
+            maxBytes=self.max_file_size,
+            backupCount=self.backup_count
+        )
+        
+        if level:
+            handler_level = level if isinstance(level, int) else getattr(logging, level.upper())
+            handler.setLevel(handler_level)
+        else:
+            handler.setLevel(self.level)
+        
+        formatter = self._create_formatter(format_type or self.format_type)
+        handler.setFormatter(formatter)
+        
+        logging.getLogger().addHandler(handler)
+        self._handlers.append(handler)
+        
+        return handler
+    
+    def add_console_handler(
+        self,
+        level: Optional[Union[str, int]] = None,
+        format_type: Optional[str] = None
+    ) -> logging.Handler:
+        """Add console handler."""
+        handler = logging.StreamHandler()
+        
+        if level:
+            handler_level = level if isinstance(level, int) else getattr(logging, level.upper())
+            handler.setLevel(handler_level)
+        else:
+            handler.setLevel(self.level)
+        
+        formatter = self._create_formatter(format_type or self.format_type)
+        handler.setFormatter(formatter)
+        
+        logging.getLogger().addHandler(handler)
+        self._handlers.append(handler)
+        
+        return handler
+    
+    @contextmanager
+    def log_context(
+        self,
+        operation: Optional[str] = None,
+        step: Optional[str] = None,
+        request_id: Optional[str] = None,
+        **extra
+    ):
+        """Context manager for structured logging."""
+        context = LogContext(
+            operation=operation,
+            step=step,
+            request_id=request_id,
+            extra=extra
+        )
+        
+        self._context_stack.append(context)
+        
+        # Create context filter
+        old_makeRecord = logging.getLoggerClass().makeRecord
+        
+        def makeRecord_with_context(self, name, level, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None):
+            record = old_makeRecord(name, level, fn, lno, msg, args, exc_info, func, extra, sinfo)
+            if self._context_stack:
+                record.context = self._context_stack[-1]
+            return record
+        
+        logging.getLoggerClass().makeRecord = makeRecord_with_context
+        
+        try:
+            yield
+        finally:
+            self._context_stack.pop()
+            logging.getLoggerClass().makeRecord = old_makeRecord
+    
+    def log_operation_start(self, operation: str, **details) -> None:
+        """Log operation start."""
+        logger = self.get_logger('operations')
+        logger.info(f"Starting operation: {operation}", extra={'details': details})
+        
+        if self.enable_performance:
+            self.performance.start_timer(operation)
+    
+    def log_operation_end(self, operation: str, success: bool = True, **details) -> None:
+        """Log operation completion."""
+        logger = self.get_logger('operations')
+        status = "completed" if success else "failed"
+        logger.info(f"Operation {status}: {operation}", extra={'details': details})
+        
+        if self.enable_performance:
+            self.performance.end_timer(operation)
+    
+    def log_error(self, message: str, exception: Optional[Exception] = None, **context) -> None:
+        """Log error with context."""
+        logger = self.get_logger('errors')
+        if exception:
+            logger.error(message, exc_info=exception, extra=context)
+        else:
+            logger.error(message, extra=context)
+    
+    def log_performance_metric(self, metric_name: str, value: float, unit: str = "", **context) -> None:
+        """Log performance metric."""
+        if not self.enable_performance:
             return
         
-        with self._lock:
-            # Update performance data
-            if operation not in self._performance_data:
-                self._performance_data[operation] = {
-                    'count': 0,
-                    'total_time': 0.0,
-                    'min_time': float('inf'),
-                    'max_time': 0.0,
-                    'avg_time': 0.0
-                }
-            
-            perf_data = self._performance_data[operation]
-            perf_data['count'] += 1
-            perf_data['total_time'] += duration
-            perf_data['min_time'] = min(perf_data['min_time'], duration)
-            perf_data['max_time'] = max(perf_data['max_time'], duration)
-            perf_data['avg_time'] = perf_data['total_time'] / perf_data['count']
-            
-            # Log to performance logger
-            if 'performance' in self._loggers:
-                log_data = {
-                    'timestamp': datetime.now().isoformat(),
-                    'operation': operation,
-                    'duration': duration,
-                    'statistics': perf_data.copy(),
-                    **metadata
-                }
-                self._loggers['performance'].info(json.dumps(log_data))
-    
-    def push_context(self, **context) -> None:
-        """Push logging context for structured logging.
-        
-        Parameters
-        ----------
-        **context
-            Context key-value pairs
-        """
-        if not hasattr(self._context_stack, 'contexts'):
-            self._context_stack.contexts = []
-        
-        self._context_stack.contexts.append(context)
-    
-    def pop_context(self) -> Dict[str, Any]:
-        """Pop logging context.
-        
-        Returns
-        -------
-        Dict[str, Any]
-            Popped context
-        """
-        if (hasattr(self._context_stack, 'contexts') and 
-            self._context_stack.contexts):
-            return self._context_stack.contexts.pop()
-        return {}
-    
-    def get_current_context(self) -> Dict[str, Any]:
-        """Get current logging context.
-        
-        Returns
-        -------
-        Dict[str, Any]
-            Combined context from stack
-        """
-        if not hasattr(self._context_stack, 'contexts'):
-            return {}
-        
-        # Merge all contexts in stack
-        combined = {}
-        for context in self._context_stack.contexts:
-            combined.update(context)
-        
-        return combined
-    
-    def log_with_context(self, level: str, message: str, logger_name: str = None, **extra) -> None:
-        """Log message with current context.
-        
-        Parameters
-        ----------
-        level : str
-            Log level
-        message : str
-            Log message
-        logger_name : str, optional
-            Logger name (default: root)
-        **extra
-            Additional context
-        """
-        logger = self.get_logger(logger_name) if logger_name else logging.getLogger()
-        
-        # Combine context
-        context = self.get_current_context()
-        context.update(extra)
-        
-        # Add context to message if not using JSON format
-        if not self.json_format and context:
-            context_str = ' | '.join(f'{k}={v}' for k, v in context.items())
-            message = f"{message} | {context_str}"
-        
-        # Log with appropriate level
-        log_level = self.LEVEL_MAP.get(level.upper(), logging.INFO)
-        logger.log(log_level, message, extra=context if self.json_format else {})
-    
-    def log_exception(self, exception: Exception, logger_name: str = None, **context) -> None:
-        """Log exception with full traceback and context.
-        
-        Parameters
-        ----------
-        exception : Exception
-            Exception to log
-        logger_name : str, optional
-            Logger name
-        **context
-            Additional context
-        """
-        logger = self.get_logger(logger_name) if logger_name else logging.getLogger()
-        
-        # Track error counts
-        exc_type = type(exception).__name__
-        with self._lock:
-            self._error_counts[exc_type] = self._error_counts.get(exc_type, 0) + 1
-        
-        # Prepare exception data
-        exc_data = {
-            'exception_type': exc_type,
-            'exception_message': str(exception),
-            'traceback': traceback.format_exc(),
-            'error_count': self._error_counts[exc_type],
+        logger = self.get_logger('performance')
+        logger.info(f"Metric {metric_name}: {value} {unit}", extra={
+            'metric_name': metric_name,
+            'metric_value': value,
+            'metric_unit': unit,
             **context
+        })
+    
+    def _setup_root_logger(self) -> None:
+        """Setup root logger configuration."""
+        root_logger = logging.getLogger()
+        root_logger.setLevel(self.level)
+        
+        # Clear existing handlers
+        root_logger.handlers.clear()
+        
+        # Add console handler
+        if self.enable_console:
+            self.add_console_handler()
+        
+        # Add file handler
+        if self.file_path:
+            self.add_file_handler(self.file_path)
+    
+    def _create_formatter(self, format_type: str) -> logging.Formatter:
+        """Create formatter based on type."""
+        if format_type == "json":
+            return JSONFormatter()
+        elif format_type == "detailed":
+            fmt = '%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(funcName)s:%(lineno)d - %(message)s'
+            return logging.Formatter(fmt)
+        else:  # standard
+            fmt = '%(asctime)s - %(levelname)s - %(message)s'
+            return logging.Formatter(fmt)
+    
+    def get_log_stats(self) -> Dict[str, Any]:
+        """Get logging statistics."""
+        stats = {
+            'total_loggers': len(self._loggers),
+            'active_handlers': len(self._handlers),
+            'current_level': logging.getLevelName(self.level),
+            'context_depth': len(self._context_stack),
         }
         
-        if self.json_format:
-            logger.error("Exception occurred", extra=exc_data)
-        else:
-            logger.error(f"Exception occurred: {exc_type}: {exception}\n{traceback.format_exc()}")
-    
-    def get_statistics(self) -> Dict[str, Any]:
-        """Get logging statistics.
-        
-        Returns
-        -------
-        Dict[str, Any]
-            Logging statistics
-        """
-        with self._lock:
-            uptime = time.time() - self._start_time
-            
-            return {
-                'uptime_seconds': uptime,
-                'log_counts': self._log_counts.copy(),
-                'error_counts': self._error_counts.copy(),
-                'performance_data': self._performance_data.copy(),
-                'total_logs': sum(self._log_counts.values()),
-                'logs_per_second': sum(self._log_counts.values()) / uptime if uptime > 0 else 0
-            }
-    
-    def create_performance_context(self, operation: str, **metadata):
-        """Create context manager for automatic performance logging.
-        
-        Parameters
-        ----------
-        operation : str
-            Operation name
-        **metadata
-            Additional metadata
-            
-        Returns
-        -------
-        PerformanceContext
-            Context manager
-        """
-        return PerformanceContext(self, operation, metadata)
-    
-    def set_level(self, level: str) -> None:
-        """Change logging level.
-        
-        Parameters
-        ----------
-        level : str
-            New logging level
-        """
-        self.level = level.upper()
-        log_level = self.LEVEL_MAP[self.level]
-        
-        with self._lock:
-            # Update all handlers
-            for handler in self._handlers:
-                handler.setLevel(log_level)
-            
-            # Update root logger
-            logging.getLogger().setLevel(log_level)
-    
-    def close(self) -> None:
-        """Close all handlers and cleanup."""
-        with self._lock:
-            for handler in self._handlers:
+        # File handler stats
+        for handler in self._handlers:
+            if isinstance(handler, logging.handlers.RotatingFileHandler):
                 try:
-                    handler.close()
-                except Exception as e:
-                    print(f"Error closing handler: {e}")
-            
-            self._handlers.clear()
-            self._loggers.clear()
+                    stats['log_file_size'] = Path(handler.baseFilename).stat().st_size
+                    break
+                except Exception:
+                    pass
+        
+        return stats
+    
+    def rotate_logs(self) -> None:
+        """Manually rotate log files."""
+        for handler in self._handlers:
+            if isinstance(handler, logging.handlers.RotatingFileHandler):
+                handler.doRollover()
+    
+    def cleanup_old_logs(self, days: int = 30) -> int:
+        """Clean up old log files."""
+        if not self.file_path:
+            return 0
+        
+        log_dir = self.file_path.parent
+        if not log_dir.exists():
+            return 0
+        
+        cutoff_time = time.time() - (days * 24 * 3600)
+        removed_count = 0
+        
+        # Find old log files
+        pattern = f"{self.file_path.stem}.*"
+        for log_file in log_dir.glob(pattern):
+            try:
+                if log_file.stat().st_mtime < cutoff_time:
+                    log_file.unlink()
+                    removed_count += 1
+            except Exception as e:
+                logging.warning(f"Failed to remove old log file {log_file}: {e}")
+        
+        return removed_count
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get log manager status."""
+        return {
+            'level': logging.getLevelName(self.level),
+            'file_path': str(self.file_path) if self.file_path else None,
+            'format_type': self.format_type,
+            'console_enabled': self.enable_console,
+            'performance_enabled': self.enable_performance,
+            'handlers': len(self._handlers),
+            'loggers': len(self._loggers),
+            'stats': self.get_log_stats(),
+        }
     
     def __enter__(self):
         """Context manager entry."""
@@ -446,136 +414,7 @@ class LogManager:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        self.close()
-
-
-class JsonFormatter(logging.Formatter):
-    """JSON formatter for structured logging."""
-    
-    def format(self, record: logging.LogRecord) -> str:
-        """Format log record as JSON.
-        
-        Parameters
-        ----------
-        record : logging.LogRecord
-            Log record
-            
-        Returns
-        -------
-        str
-            JSON formatted log message
-        """
-        log_data = {
-            'timestamp': datetime.fromtimestamp(record.created).isoformat(),
-            'level': record.levelname,
-            'logger': record.name,
-            'message': record.getMessage(),
-            'module': record.module,
-            'function': record.funcName,
-            'line': record.lineno
-        }
-        
-        # Add exception info if present
-        if record.exc_info:
-            log_data['exception'] = self.formatException(record.exc_info)
-        
-        # Add extra fields
-        extra_fields = {
-            k: v for k, v in record.__dict__.items()
-            if k not in {
-                'name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
-                'filename', 'module', 'lineno', 'funcName', 'created',
-                'msecs', 'relativeCreated', 'thread', 'threadName',
-                'processName', 'process', 'message', 'exc_info', 'exc_text',
-                'stack_info'
-            }
-        }
-        
-        if extra_fields:
-            log_data['extra'] = extra_fields
-        
-        return json.dumps(log_data, default=str)
-
-
-class StatisticsHandler(logging.Handler):
-    """Custom handler for collecting logging statistics."""
-    
-    def __init__(self, log_manager):
-        super().__init__()
-        self.log_manager = log_manager
-    
-    def emit(self, record: logging.LogRecord) -> None:
-        """Process log record for statistics.
-        
-        Parameters
-        ----------
-        record : logging.LogRecord
-            Log record
-        """
-        try:
-            with self.log_manager._lock:
-                level = record.levelname
-                if level in self.log_manager._log_counts:
-                    self.log_manager._log_counts[level] += 1
-        except Exception:
-            # Ignore errors in statistics collection
-            pass
-
-
-class PerformanceContext:
-    """Context manager for automatic performance logging."""
-    
-    def __init__(self, log_manager: LogManager, operation: str, metadata: Dict[str, Any]):
-        self.log_manager = log_manager
-        self.operation = operation
-        self.metadata = metadata
-        self.start_time = None
-    
-    def __enter__(self):
-        """Start timing."""
-        self.start_time = time.perf_counter()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """End timing and log performance."""
-        if self.start_time is not None:
-            duration = time.perf_counter() - self.start_time
-            
-            # Add exception info if occurred
-            if exc_type is not None:
-                self.metadata['exception'] = True
-                self.metadata['exception_type'] = exc_type.__name__
-            
-            self.log_manager.log_performance(self.operation, duration, **self.metadata)
-
-
-def setup_logging(
-    level: str = 'INFO',
-    log_file: Optional[Union[str, Path]] = None,
-    json_format: bool = False,
-    **kwargs
-) -> LogManager:
-    """Convenience function to setup logging.
-    
-    Parameters
-    ----------
-    level : str
-        Logging level
-    log_file : str or Path, optional
-        Log file path
-    json_format : bool
-        Whether to use JSON formatting
-    **kwargs
-        Additional LogManager arguments
-        
-    Returns
-    -------
-    LogManager
-        Configured log manager
-    """
-    return LogManager(
-        level=level,
-        file_path=log_file,
-        json_format=json_format,
-        **kwargs
-    )
+        # Close all handlers
+        for handler in self._handlers:
+            handler.close()
+        self._handlers.clear()
