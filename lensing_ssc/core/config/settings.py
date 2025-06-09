@@ -135,9 +135,9 @@ class ProcessingConfig:
             errors.append("checkpoint_interval must be positive")
         
         # Validate log level
-        valid_log_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        valid_log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         if self.log_level.upper() not in valid_log_levels:
-            errors.append(f"log_level must be one of {valid_log_levels}")
+            errors.append(f"log_level must be one of {list(valid_log_levels)}")
         
         # Validate sheet range
         if not isinstance(self.sheet_range, (tuple, list)) or len(self.sheet_range) != 2:
@@ -545,15 +545,15 @@ class VisualizationConfig:
             errors.append("color_palette cannot be empty")
         
         # Validate plot formats
-        valid_formats = ["pdf", "png", "svg", "eps", "jpg", "jpeg", "tiff"]
+        valid_formats = {"pdf", "png", "svg", "eps", "jpg", "jpeg", "tiff"}
         invalid_formats = [fmt for fmt in self.plot_formats if fmt.lower() not in valid_formats]
         if invalid_formats:
-            errors.append(f"Invalid plot formats: {invalid_formats}. Valid: {valid_formats}")
+            errors.append(f"Invalid plot formats: {invalid_formats}. Valid: {list(valid_formats)}")
         
         # Validate map projection
-        valid_projections = ["mollweide", "aitoff", "hammer", "lambert", "polar"]
+        valid_projections = {"mollweide", "aitoff", "hammer", "lambert", "polar"}
         if self.map_projection not in valid_projections:
-            errors.append(f"Invalid map projection: {self.map_projection}. Valid: {valid_projections}")
+            errors.append(f"Invalid map projection: {self.map_projection}. Valid: {list(valid_projections)}")
         
         if errors:
             raise ConfigurationError(f"Visualization configuration validation failed: {'; '.join(errors)}")
