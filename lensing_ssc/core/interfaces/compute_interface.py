@@ -14,16 +14,80 @@ from .data_interface import DataProvider
 
 
 class ComputeProvider(DataProvider):
-    """Abstract base class for computational providers."""
+    """Abstract base class for computational providers.
+    
+    This class defines interfaces for mathematical and statistical computations,
+    allowing for different backend implementations (NumPy, CuPy, JAX, etc.).
+    """
+    
+    @property
+    @abstractmethod
+    def supported_backends(self) -> List[str]:
+        """List of supported computational backends.
+        
+        Returns
+        -------
+        List[str]
+            Names of supported backends (e.g., ['numpy', 'cupy', 'jax'])
+        """
+        pass
     
     @abstractmethod
     def set_backend(self, backend: str) -> None:
-        """Set the computational backend (e.g., 'numpy', 'cupy', 'jax')."""
+        """Set the computational backend.
+        
+        Parameters
+        ----------
+        backend : str
+            Backend name (e.g., 'numpy', 'cupy', 'jax')
+            
+        Raises
+        ------
+        ValueError
+            If backend is not supported
+        RuntimeError
+            If backend cannot be initialized
+        """
         pass
     
     @abstractmethod
     def get_backend(self) -> str:
-        """Get the current computational backend."""
+        """Get the current computational backend.
+        
+        Returns
+        -------
+        str
+            Name of currently active backend
+        """
+        pass
+    
+    @abstractmethod
+    def get_backend_info(self) -> Dict[str, Any]:
+        """Get information about current backend.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Backend information including version, capabilities, and performance hints
+        """
+        pass
+    
+    @abstractmethod
+    def benchmark_backend(self, operation: str, data_size: int) -> float:
+        """Benchmark backend performance for specific operation.
+        
+        Parameters
+        ----------
+        operation : str
+            Operation to benchmark
+        data_size : int
+            Size of test data
+            
+        Returns
+        -------
+        float
+            Execution time in seconds
+        """
         pass
 
 

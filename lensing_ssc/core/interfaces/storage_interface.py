@@ -15,26 +15,121 @@ from .data_interface import DataProvider
 
 
 class StorageProvider(DataProvider):
-    """Abstract base class for storage providers."""
+    """Abstract base class for storage providers.
+    
+    This class defines interfaces for file system operations and storage management,
+    supporting both local and remote storage backends.
+    """
     
     @abstractmethod
     def exists(self, path: Union[str, Path]) -> bool:
-        """Check if a file or directory exists."""
+        """Check if a file or directory exists.
+        
+        Parameters
+        ----------
+        path : str or Path
+            Path to check
+            
+        Returns
+        -------
+        bool
+            True if path exists
+        """
         pass
     
     @abstractmethod
     def mkdir(self, path: Union[str, Path], parents: bool = True, exist_ok: bool = True) -> None:
-        """Create directory."""
+        """Create directory.
+        
+        Parameters
+        ----------
+        path : str or Path
+            Directory path to create
+        parents : bool
+            Create parent directories if needed
+        exist_ok : bool
+            Do not raise error if directory exists
+            
+        Raises
+        ------
+        OSError
+            If directory creation fails
+        """
         pass
     
     @abstractmethod
     def remove(self, path: Union[str, Path]) -> None:
-        """Remove file or directory."""
+        """Remove file or directory.
+        
+        Parameters
+        ----------
+        path : str or Path
+            Path to remove
+            
+        Raises
+        ------
+        OSError
+            If removal fails
+        FileNotFoundError
+            If path does not exist
+        """
         pass
     
     @abstractmethod
     def list_files(self, path: Union[str, Path], pattern: Optional[str] = None) -> List[Path]:
-        """List files in directory."""
+        """List files in directory.
+        
+        Parameters
+        ----------
+        path : str or Path
+            Directory path
+        pattern : str, optional
+            Glob pattern to filter files
+            
+        Returns
+        -------
+        List[Path]
+            List of file paths
+            
+        Raises
+        ------
+        OSError
+            If directory cannot be accessed
+        """
+        pass
+    
+    @abstractmethod
+    def get_file_info(self, path: Union[str, Path]) -> Dict[str, Any]:
+        """Get file information.
+        
+        Parameters
+        ----------
+        path : str or Path
+            File path
+            
+        Returns
+        -------
+        Dict[str, Any]
+            File information including size, modification time, permissions
+        """
+        pass
+    
+    @abstractmethod
+    def copy_file(self, src: Union[str, Path], dst: Union[str, Path]) -> None:
+        """Copy file from source to destination.
+        
+        Parameters
+        ----------
+        src : str or Path
+            Source file path
+        dst : str or Path
+            Destination file path
+            
+        Raises
+        ------
+        OSError
+            If copy operation fails
+        """
         pass
 
 

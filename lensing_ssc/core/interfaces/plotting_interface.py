@@ -15,36 +15,143 @@ from .data_interface import DataProvider
 
 
 class PlottingProvider(DataProvider):
-    """Abstract base class for plotting providers."""
+    """Abstract base class for plotting providers.
+    
+    This class defines interfaces for plotting and visualization operations,
+    supporting multiple backends (matplotlib, plotly, bokeh, etc.).
+    """
+    
+    @property
+    @abstractmethod
+    def supported_backends(self) -> List[str]:
+        """List of supported plotting backends.
+        
+        Returns
+        -------
+        List[str]
+            Names of supported backends (e.g., ['matplotlib', 'plotly', 'bokeh'])
+        """
+        pass
+    
+    @property
+    @abstractmethod
+    def supported_formats(self) -> List[str]:
+        """List of supported output formats.
+        
+        Returns
+        -------
+        List[str]
+            Supported file formats (e.g., ['png', 'pdf', 'svg', 'html'])
+        """
+        pass
     
     @abstractmethod
     def set_backend(self, backend: str) -> None:
-        """Set plotting backend."""
+        """Set plotting backend.
+        
+        Parameters
+        ----------
+        backend : str
+            Backend name
+            
+        Raises
+        ------
+        ValueError
+            If backend is not supported
+        """
         pass
     
     @abstractmethod
     def get_backend(self) -> str:
-        """Get current plotting backend."""
+        """Get current plotting backend.
+        
+        Returns
+        -------
+        str
+            Name of currently active backend
+        """
         pass
     
     @abstractmethod
     def create_figure(self, figsize: Tuple[int, int] = (10, 8), **kwargs) -> Any:
-        """Create a new figure."""
+        """Create a new figure.
+        
+        Parameters
+        ----------
+        figsize : Tuple[int, int]
+            Figure size (width, height) in inches
+        **kwargs
+            Additional figure creation arguments
+            
+        Returns
+        -------
+        Any
+            Figure object (backend-specific)
+        """
         pass
     
     @abstractmethod
     def save_figure(self, fig: Any, path: Union[str, Path], **kwargs) -> None:
-        """Save figure to file."""
+        """Save figure to file.
+        
+        Parameters
+        ----------
+        fig : Any
+            Figure object
+        path : str or Path
+            Output file path
+        **kwargs
+            Additional save arguments (dpi, format, etc.)
+            
+        Raises
+        ------
+        OSError
+            If file cannot be saved
+        """
         pass
     
     @abstractmethod
     def show_figure(self, fig: Any) -> None:
-        """Display figure."""
+        """Display figure.
+        
+        Parameters
+        ----------
+        fig : Any
+            Figure object to display
+        """
         pass
     
     @abstractmethod
     def close_figure(self, fig: Any) -> None:
-        """Close figure."""
+        """Close figure and free resources.
+        
+        Parameters
+        ----------
+        fig : Any
+            Figure object to close
+        """
+        pass
+    
+    @abstractmethod
+    def set_style(self, style: str) -> None:
+        """Set plotting style.
+        
+        Parameters
+        ----------
+        style : str
+            Style name or path to style file
+        """
+        pass
+    
+    @abstractmethod
+    def get_style_options(self) -> List[str]:
+        """Get available plotting styles.
+        
+        Returns
+        -------
+        List[str]
+            Available style names
+        """
         pass
 
 
