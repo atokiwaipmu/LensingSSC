@@ -15,7 +15,7 @@ import logging
 from ..base.exceptions import ConfigurationError
 from ..base.validation import ConfigValidator
 from .settings import ProcessingConfig, AnalysisConfig, VisualizationConfig, CONFIG_SCHEMA
-from .loader import ConfigLoader, YAMLConfigLoader, JSONConfigLoader
+from .loader import ConfigLoader, JSONConfigLoader, get_config_loader
 
 
 class ConfigManager:
@@ -27,11 +27,33 @@ class ConfigManager:
     
     def __init__(self):
         """Initialize the configuration manager."""
+        # Start with JSON loader (always available)
         self.loaders = {
-            '.yaml': YAMLConfigLoader(),
-            '.yml': YAMLConfigLoader(),
             '.json': JSONConfigLoader(),
         }
+        
+        # Add optional loaders if available
+        try:
+            from .loader import YAMLConfigLoader
+            yaml_loader = YAMLConfigLoader()
+            self.loaders['.yaml'] = yaml_loader
+            self.loaders['.yml'] = yaml_loader
+        except ImportError:
+            pass
+        
+        try:
+            from .loader import TOMLConfigLoader
+            self.loaders['.toml'] = TOMLConfigLoader()
+        except ImportError:
+            pass
+        
+        try:
+            from .loader import INIConfigLoader
+            ini_loader = INIConfigLoader()
+            self.loaders['.ini'] = ini_loader
+            self.loaders['.cfg'] = ini_loader
+        except ImportError:
+            pass
         self.validators = {
             'processing': ConfigValidator(CONFIG_SCHEMA['processing']),
             'analysis': ConfigValidator(CONFIG_SCHEMA['analysis']),
