@@ -50,16 +50,24 @@ class PatchOptimizer:
 
         while low <= high:
             mid = (low + high) // 2
+            # Ensure mid is odd
+            if mid % 2 == 0:
+                if mid + 1 <= high:
+                    mid += 1
+                else:
+                    mid -= 1
+            if mid < low or mid > high:
+                break
             if verbose:
                 print(f"Testing feasibility for N = {mid} ...")
 
             if self.is_feasible(mid):
                 best_feasible = mid
-                low = mid + 1
+                low = mid + 2  # Only test odd numbers
                 if verbose:
                     print(f"N = {mid} is feasible; trying larger values.")
             else:
-                high = mid - 1
+                high = mid - 2  # Only test odd numbers
                 if verbose:
                     print(f"N = {mid} is not feasible; trying smaller values.")
 
