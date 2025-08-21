@@ -84,12 +84,14 @@ class FibonacciGrid:
 
         Args:
             patch_size (float): Patch size (degrees).
-            n_opt (int): Optimal number of patches.
+            n_opt (int): Optimal number of patches (must be odd integer >= 3).
             data_dir (str, optional): Directory to save/load Fibonacci points.
 
         Returns:
             np.ndarray: Array containing the spherical coordinates (theta, phi) of each point.
         """
+        if n_opt is None or not isinstance(n_opt, int) or n_opt < 3 or n_opt % 2 == 0:
+            raise ValueError(f"n_opt must be an odd integer >= 3, got {n_opt}.")
         data_path = Path(data_dir) / f"fibonacci_points_{patch_size}.txt"
         try:
             points = np.loadtxt(data_path)

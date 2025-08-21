@@ -1,0 +1,19 @@
+[project]
+name = "lensingssc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "astropy>=5.2.2",
+    "h5py>=3.11.0",
+    "healpy>=1.16.5",
+    "jupyter>=1.1.1",
+    "lenstools",
+    "matplotlib>=3.7.5",
+    "numpy>=1.24.4",
+    "seaborn>=0.13.2",
+]
+
+[tool.uv.sources]
+lenstools = { path = "LensTools" }
