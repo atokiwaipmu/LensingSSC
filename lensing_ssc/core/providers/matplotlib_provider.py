@@ -17,8 +17,8 @@ from ..interfaces.plotting_interface import (
     PlottingProvider, MapPlottingProvider, StatisticsPlottingProvider, 
     VisualizationProvider
 )
-from ..base.data_structures import MapData, PatchData, StatisticsData
-from ..base.exceptions import ProviderError, VisualizationError
+from ..foundation.data_structures import MapData, PatchData, StatisticsData
+from ..foundation.exceptions import ProviderError, VisualizationError
 from .base_provider import LazyProvider, CachedProvider
 
 

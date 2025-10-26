@@ -91,7 +91,7 @@ from datetime import datetime
 import numpy as np
 
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, IOError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, IOError
 
 
 logger = logging.getLogger(__name__)
@@ -816,7 +816,7 @@ from datetime import datetime
 import numpy as np
 
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, IOError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, IOError
 
 
 logger = logging.getLogger(__name__)
@@ -2303,7 +2303,7 @@ from datetime import datetime
 import numpy as np
 
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, IOError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, IOError
 
 
 logger = logging.getLogger(__name__)

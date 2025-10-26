@@ -11,7 +11,7 @@ from typing import Any, Dict, Union, List
 import json
 import logging
 
-from ..base.exceptions import ConfigurationError
+from ..foundation.exceptions import ConfigurationError
 
 # Optional imports for different formats
 try:

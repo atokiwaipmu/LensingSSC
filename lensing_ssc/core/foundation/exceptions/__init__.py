@@ -537,5 +537,5 @@ def validate_range(value: Union[int, float], min_val: Optional[Union[int, float]
     if max_val is not None and value > max_val:
         raise ValidationError(f"Parameter '{name}' must be <= {max_val}, got {value}",
                             field=name, value=value)
-    
+
     return value

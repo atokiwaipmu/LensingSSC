@@ -10,8 +10,8 @@ from typing import Optional, Tuple, Union, Callable, List
 from scipy import interpolate
 import logging
 
-from ..base.exceptions import StatisticsError
-from ..base.coordinates import SphericalCoordinates, CartesianCoordinates
+from ..foundation.exceptions import StatisticsError
+from ..foundation.coordinates import SphericalCoordinates, CartesianCoordinates
 
 
 class Interpolator1D:

@@ -13,7 +13,7 @@ import logging
 import gc
 
 from ..interfaces.data_interface import CatalogProvider
-from ..base.exceptions import ProviderError, DataError
+from ..foundation.exceptions import ProviderError, DataError
 from .base_provider import LazyProvider, CachedProvider
 
 

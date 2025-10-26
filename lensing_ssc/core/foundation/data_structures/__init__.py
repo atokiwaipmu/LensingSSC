@@ -13,7 +13,7 @@ import numpy as np
 from pathlib import Path
 import copy
 
-from .exceptions import DataError, ValidationError
+from ..exceptions import DataError, ValidationError
 
 
 class DataStructure(ABC):

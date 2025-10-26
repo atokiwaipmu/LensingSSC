@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from pathlib import Path
 
-from ..base.data_structures import MapData, PatchData, StatisticsData
+from ..foundation.data_structures import MapData, PatchData, StatisticsData
 from .data_interface import DataProvider
 
 

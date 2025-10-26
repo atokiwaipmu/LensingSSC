@@ -1,76 +1,20 @@
+"""Compatibility layer for the legacy :mod:`lensing_ssc.core.base` package.
+
+The foundational components now live under :mod:`lensing_ssc.core.foundation`.
+Importing from :mod:`lensing_ssc.core.base` will continue to work, but a
+:class:`DeprecationWarning` is emitted to help consumers migrate to the new
+package structure.
 """
-Base classes and data structures with minimal dependencies.
 
-This module provides the foundational components that other modules build upon,
-including base classes, data structures, coordinate systems, and validation utilities.
-"""
+from warnings import warn
 
-from .exceptions import (
-    LensingSSCError,
-    ValidationError,
-    ConfigurationError,
-    ProviderError,
-    ProcessingError,
-    DataError,
-    GeometryError,
-    StatisticsError,
-    IOError,
-    VisualizationError,
-)
-from .data_structures import (
-    DataStructure,
-    MapData,
-    PatchData,
-    StatisticsData,
-)
-from .coordinates import (
-    Coordinates,
-    SphericalCoordinates,
-    CartesianCoordinates,
-    CoordinateTransformer,
-    RotationMatrix,
-)
-from .validation import (
-    Validator,
-    DataValidator,
-    ConfigValidator,
-    PathValidator,
-    RangeValidator,
-    validate_spherical_coordinates,
-    validate_patch_size,
-    validate_nside,
+from ..foundation import *  # noqa: F401,F403
+from ..foundation import __all__ as _foundation_all
+
+warn(
+    "'lensing_ssc.core.base' is deprecated; use 'lensing_ssc.core.foundation' instead.",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
-__all__ = [
-    # Exceptions
-    "LensingSSCError",
-    "ValidationError",
-    "ConfigurationError", 
-    "ProviderError",
-    "ProcessingError",
-    "DataError",
-    "GeometryError",
-    "StatisticsError",
-    "IOError",
-    "VisualizationError",
-    # Data structures
-    "DataStructure",
-    "MapData",
-    "PatchData", 
-    "StatisticsData",
-    # Coordinates
-    "Coordinates",
-    "SphericalCoordinates",
-    "CartesianCoordinates",
-    "CoordinateTransformer",
-    "RotationMatrix",
-    # Validation
-    "Validator",
-    "DataValidator",
-    "ConfigValidator",
-    "PathValidator",
-    "RangeValidator",
-    "validate_spherical_coordinates",
-    "validate_patch_size",
-    "validate_nside",
-]
+__all__ = list(_foundation_all)

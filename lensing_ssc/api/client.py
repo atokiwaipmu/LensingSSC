@@ -7,7 +7,7 @@ from pathlib import Path
 import logging
 
 from ..core.config.settings import ProcessingConfig, AnalysisConfig, get_config
-from ..core.base.exceptions import LensingSSCError
+from ..core.foundation.exceptions import LensingSSCError
 from ..providers.factory import get_provider, list_available_providers
 from ..processing.pipeline.preprocessing import PreprocessingPipeline
 from ..processing.pipeline.analysis import AnalysisPipeline

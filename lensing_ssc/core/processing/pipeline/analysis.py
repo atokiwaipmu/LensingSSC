@@ -70,7 +70,7 @@ import multiprocessing as mp
 import numpy as np
 
 from . import BasePipeline, ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, ConfigurationError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, ConfigurationError
 
 
 logger = logging.getLogger(__name__)

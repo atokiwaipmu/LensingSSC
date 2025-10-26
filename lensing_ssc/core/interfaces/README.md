@@ -157,7 +157,7 @@ Exports all interface classes organized by category:
 ### Provider Pattern Implementation
 ```python
 from lensing_ssc.core.interfaces import MapProvider
-from lensing_ssc.core.base import MapData
+from lensing_ssc.core.foundation import MapData
 
 class HealpixMapProvider(MapProvider):
     @property

@@ -5,7 +5,7 @@ This module provides the foundational components that other modules build upon,
 including base classes, interfaces, mathematical utilities, and configuration.
 """
 
-from lensing_ssc.core.base import (
+from lensing_ssc.core.foundation import (
     LensingSSCError,
     ValidationError,
     ConfigurationError,

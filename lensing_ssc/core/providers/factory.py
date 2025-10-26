@@ -13,7 +13,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ..interfaces.data_interface import DataProvider
-from ..base.exceptions import ProviderError
+from ..foundation.exceptions import ProviderError
 from .base_provider import BaseProvider, ProviderRegistry, get_global_registry
 
 

@@ -301,7 +301,7 @@ LensingSSC/
 
 ### 1. Dependency Injection Pattern
 ```python
-# lensing_ssc/core/base/data_structures.py
+# lensing_ssc/core/foundation/data_structures/__init__.py
 from abc import ABC, abstractmethod
 from typing import Optional, Any
 

@@ -8,10 +8,10 @@ __author__ = "Akira Tokiwa, Adrian E. Bayer, Jia Liu, Masahiro Takada"
 __email__ = "akira.tokiwa@example.com"
 
 # Core imports that should always be available
-from lensing_ssc.core.base.exceptions import LensingSSCError
+from lensing_ssc.core.foundation.exceptions import LensingSSCError
 from lensing_ssc.core.config import get_config, Config
 from lensing_ssc.api.client import LensingSSCClient
-from lensing_ssc.core.base import MapData, PatchData
+from lensing_ssc.core.foundation import MapData, PatchData
 
 # Conditional imports for heavy dependencies
 try:
