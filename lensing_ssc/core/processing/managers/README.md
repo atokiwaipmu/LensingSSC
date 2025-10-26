@@ -229,7 +229,7 @@ checkpoint_mgr = CheckpointManager(config=config)
 
 ## Error Handling
 
-All managers use custom exception classes from `lensing_ssc.core.base.exceptions`:
+All managers use custom exception classes from `lensing_ssc.core.foundation.exceptions`:
 
 - `ResourceError`: Resource management failures
 - `CheckpointError`: Checkpoint save/load failures  

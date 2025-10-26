@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from ...base import ValidationError, ProcessingError, DataError
+from ...foundation import ValidationError, ProcessingError, DataError
 from . import BaseDataStep
 
 logger = logging.getLogger(__name__)

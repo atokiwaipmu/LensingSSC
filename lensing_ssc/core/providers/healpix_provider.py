@@ -12,8 +12,8 @@ from pathlib import Path
 import logging
 
 from ..interfaces.data_interface import MapProvider
-from ..base.data_structures import MapData
-from ..base.exceptions import ProviderError, DataError
+from ..foundation.data_structures import MapData
+from ..foundation.exceptions import ProviderError, DataError
 from .base_provider import LazyProvider, CachedProvider
 
 

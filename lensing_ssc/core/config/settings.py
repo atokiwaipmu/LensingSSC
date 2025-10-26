@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 import logging
 
-from ..base.exceptions import ConfigurationError
+from ..foundation.exceptions import ConfigurationError
 
 
 # Global configuration instance

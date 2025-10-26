@@ -10,7 +10,7 @@ from typing import Optional, Tuple, Union, Callable, List
 from scipy import fft, signal
 import logging
 
-from ..base.exceptions import StatisticsError
+from ..foundation.exceptions import StatisticsError
 
 
 class FourierTransforms:

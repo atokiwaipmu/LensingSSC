@@ -1,21 +1,21 @@
-# Core Base Module
+# Core Foundation Package
 
-This module provides the foundational components of the LensingSSC package with **minimal dependencies** (numpy and standard library only). It implements a lightweight, dependency-abstracted architecture that other modules can build upon.
+This package provides the foundational components of the LensingSSC package with **minimal dependencies** (numpy and standard library only). It implements a lightweight, dependency-abstracted architecture that other modules can build upon.
 
 ## Design Philosophy
 
-The base module follows these key principles:
+The foundation package follows these key principles:
 - **Minimal Dependencies**: Only numpy and Python standard library
 - **Provider Pattern Ready**: Designed to work with the provider abstraction system
 - **Comprehensive Validation**: Robust data validation and error handling
 - **Type Safety**: Full type hints and validation throughout
 - **Extensible Architecture**: Abstract base classes for consistent interfaces
 
-## Module Structure
+## Package Structure
 
 ### 📁 Core Components
 
-#### `data_structures.py` (748 lines)
+#### `data_structures/` package (748 lines)
 **Primary data containers with built-in validation and serialization**
 
 - **`DataStructure`** (ABC): Base class for all data structures
@@ -43,7 +43,7 @@ The base module follows these key principles:
 - **Utility Functions**:
   - `combine_map_data()`: Combine multiple maps with various operations
 
-#### `coordinates.py` (710 lines)
+#### `coordinates/` package (710 lines)
 **Complete coordinate system implementation with transformations**
 
 - **`Coordinates`** (ABC): Base coordinate interface
@@ -70,7 +70,7 @@ The base module follows these key principles:
   - Spherical coordinate rotation
   - Rotation composition
 
-#### `exceptions.py` (541 lines)
+#### `exceptions/` package (541 lines)
 **Hierarchical exception system with enhanced error reporting**
 
 - **`LensingSSCError`** (base): Enhanced exception with context
@@ -94,7 +94,7 @@ The base module follows these key principles:
   - `validate_not_none()`, `validate_type()`: Quick validators
   - `validate_positive()`, `validate_range()`: Numeric validation
 
-#### `validation.py` (952 lines)
+#### `validation/` package (952 lines)
 **Comprehensive validation framework with multiple validator types**
 
 - **`Validator`** (ABC): Base validator with error/warning collection
@@ -141,7 +141,7 @@ Exports all major classes and functions with logical grouping:
 
 ### Data Structures
 ```python
-from lensing_ssc.core.base import MapData, PatchData
+from lensing_ssc.core.foundation import MapData, PatchData
 
 # Create and validate map data
 map_data = MapData(
@@ -156,7 +156,7 @@ stats = map_data.get_statistics()  # Built-in statistics
 
 ### Coordinate Transformations
 ```python
-from lensing_ssc.core.base import SphericalCoordinates, CoordinateTransformer
+from lensing_ssc.core.foundation import SphericalCoordinates, CoordinateTransformer
 
 # Single coordinate
 sphere_coord = SphericalCoordinates.from_degrees(r=1.0, theta_deg=45, phi_deg=90)
@@ -169,7 +169,7 @@ cartesian_batch = CoordinateTransformer.spherical_to_cartesian_batch(coords_arra
 
 ### Validation Framework
 ```python
-from lensing_ssc.core.base import DataValidator, validate_spherical_coordinates
+from lensing_ssc.core.foundation import DataValidator, validate_spherical_coordinates
 
 # Validate complex data
 validator = DataValidator(strict=False)
@@ -184,7 +184,7 @@ coords_valid = validate_spherical_coordinates(theta_phi_array)
 
 ### Exception Handling
 ```python
-from lensing_ssc.core.base import ValidationError, reraise_with_context
+from lensing_ssc.core.foundation import ValidationError, reraise_with_context
 
 try:
     # Some operation
@@ -194,10 +194,10 @@ except Exception as e:
 ```
 
 ## File Size Analysis
-- **`data_structures.py`**: 748 lines - Comprehensive but within limits
-- **`coordinates.py`**: 710 lines - Approaching limit, well-structured
-- **`validation.py`**: 952 lines - **EXCEEDS 500-line guideline**
-- **`exceptions.py`**: 541 lines - Slightly over guideline
+- **`data_structures/`**: 748 lines - Comprehensive but within limits
+- **`coordinates/`**: 710 lines - Approaching limit, well-structured
+- **`validation/`**: 952 lines - **EXCEEDS 500-line guideline**
+- **`exceptions/`**: 541 lines - Slightly over guideline
 - **Total**: 2,951 lines across 4 implementation files
 
 ## Architectural Benefits

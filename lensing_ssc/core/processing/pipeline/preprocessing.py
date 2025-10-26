@@ -25,19 +25,19 @@ from .base_pipeline import (
     PipelineState,
     pipeline_step
 )
-from ...base.exceptions import (
+from ...foundation.exceptions import (
     ProcessingError, 
     ValidationError, 
     ConfigurationError,
     DataError
 )
-from ...base.validation import (
+from ...foundation.validation import (
     PathValidator, 
     RangeValidator,
     validate_not_none,
     validate_positive
 )
-from ...base.data_structures import MapData
+from ...foundation.data_structures import MapData
 from ...config.settings import ProcessingConfig
 from ...providers.factory import get_provider
 

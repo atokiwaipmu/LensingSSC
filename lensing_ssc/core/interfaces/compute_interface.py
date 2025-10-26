@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 import numpy as np
 
-from ..base.data_structures import MapData, PatchData, StatisticsData
+from ..foundation.data_structures import MapData, PatchData, StatisticsData
 from .data_interface import DataProvider
 
 

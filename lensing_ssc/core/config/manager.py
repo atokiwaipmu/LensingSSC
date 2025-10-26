@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Tuple
 import logging
 
-from ..base.exceptions import ConfigurationError
-from ..base.validation import ConfigValidator
+from ..foundation.exceptions import ConfigurationError
+from ..foundation.validation import ConfigValidator
 from .settings import ProcessingConfig, AnalysisConfig, VisualizationConfig, CONFIG_SCHEMA
 from .loader import ConfigLoader, JSONConfigLoader, get_config_loader
 

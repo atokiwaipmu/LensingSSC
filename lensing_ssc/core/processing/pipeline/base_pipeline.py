@@ -24,14 +24,14 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 
 import numpy as np
 
-from ...base.exceptions import (
+from ...foundation.exceptions import (
     ProcessingError, 
     ValidationError, 
     ConfigurationError,
     LensingSSCError
 )
-from ...base.validation import Validator, DataValidator, validate_not_none
-from ...base.data_structures import DataStructure
+from ...foundation.validation import Validator, DataValidator, validate_not_none
+from ...foundation.data_structures import DataStructure
 from ...config.settings import ProcessingConfig
 
 

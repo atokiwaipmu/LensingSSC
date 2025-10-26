@@ -7,7 +7,7 @@ caching, and logging operations.
 """
 
 from typing import Optional, Any, Dict
-from ...base.exceptions import LensingSSCError
+from ...foundation.exceptions import LensingSSCError
 
 
 class ResourceError(LensingSSCError):

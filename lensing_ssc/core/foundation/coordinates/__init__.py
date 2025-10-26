@@ -12,7 +12,7 @@ from typing import Tuple, Union, Optional, List
 import numpy as np
 import math
 
-from .exceptions import GeometryError, ValidationError
+from ..exceptions import GeometryError, ValidationError
 
 
 class Coordinates(ABC):

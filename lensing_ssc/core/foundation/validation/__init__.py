@@ -12,8 +12,8 @@ import numpy as np
 from pathlib import Path
 import re
 
-from .exceptions import ValidationError, ConfigurationError, DataError
-from .data_structures import DataStructure, MapData, PatchData, StatisticsData
+from ..exceptions import ValidationError, ConfigurationError, DataError
+from ..data_structures import DataStructure, MapData, PatchData, StatisticsData
 
 
 class Validator(ABC):

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Type, Union, Callable
 import logging
 
 from ..interfaces.data_interface import DataProvider
-from ..base.exceptions import ProviderError
+from ..foundation.exceptions import ProviderError
 
 
 class BaseProvider(DataProvider):

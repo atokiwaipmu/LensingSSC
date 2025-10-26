@@ -55,7 +55,7 @@ from abc import ABC, abstractmethod
 
 # Import base classes from pipeline module
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, DataError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, DataError
 
 # Import individual step implementations
 from .data_loading import (

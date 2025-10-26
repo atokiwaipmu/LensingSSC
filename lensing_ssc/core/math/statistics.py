@@ -10,7 +10,7 @@ from typing import Optional, Tuple, Union, Dict, Any, List
 from scipy import stats
 import logging
 
-from ..base.exceptions import StatisticsError
+from ..foundation.exceptions import StatisticsError
 
 
 class BasicStatistics:

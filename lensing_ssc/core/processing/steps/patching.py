@@ -15,7 +15,7 @@ from datetime import datetime
 import numpy as np
 
 from ..pipeline import ProcessingStep, StepResult, PipelineContext, StepStatus
-from lensing_ssc.core.base import ValidationError, ProcessingError, GeometryError
+from lensing_ssc.core.foundation import ValidationError, ProcessingError, GeometryError
 
 
 logger = logging.getLogger(__name__)

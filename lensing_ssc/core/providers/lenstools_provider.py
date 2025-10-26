@@ -12,8 +12,8 @@ from pathlib import Path
 import logging
 
 from ..interfaces.data_interface import ConvergenceMapProvider
-from ..base.data_structures import MapData, StatisticsData
-from ..base.exceptions import ProviderError, StatisticsError
+from ..foundation.data_structures import MapData, StatisticsData
+from ..foundation.exceptions import ProviderError, StatisticsError
 from .base_provider import LazyProvider, CachedProvider
 
 

@@ -97,8 +97,8 @@ The codebase has undergone significant refactoring with a modern, dependency-abs
 - `steps/` - Modular processing steps (data loading, patching, statistics, output)
 - `managers/` - Comprehensive management (resource, cache, checkpoint, progress, log, workflow)
 
-**`lensing_ssc.core.base/`** - Lightweight core components
-- `data_structures.py`, `coordinates.py`, `validation.py`, `exceptions.py`
+**`lensing_ssc.core.foundation/`** - Lightweight core components
+- `data_structures/`, `coordinates/`, `validation/`, `exceptions/`
 - Independent of heavy astronomical libraries
 
 **`lensing_ssc.core.config/`** - Centralized configuration management
