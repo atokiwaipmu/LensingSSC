@@ -29,7 +29,7 @@ class PatchProcessor:
         self,
         patch_size_deg: float = 10.0,
         xsize: int = 2048,
-        center_points_path: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/src/core/fibonacci/center_points/"
+        center_points_path: str = "/lustre/work/akira.tokiwa/Projects/LensingSSC/lensing_ssc/core/fibonacci/center_points/"
     ) -> None:
         """Initializes the PatchProcessor with configuration parameters.
 

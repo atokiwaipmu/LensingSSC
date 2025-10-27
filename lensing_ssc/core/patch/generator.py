@@ -48,7 +48,7 @@ class PatchGenerator:
         """
         for zs in self.zs_list:
             for box_type in ["bigbox", "tiled"]:
-                output_subdir: Path = self.output_dir / box_type / f"zs{zs} / noiseless"
+                output_subdir: Path = self.output_dir / box_type / f"zs{zs}/noiseless"
                 output_subdir.mkdir(parents=True, exist_ok=True)
                 logging.info(f"Created directory {output_subdir}")
 
@@ -60,7 +60,7 @@ class PatchGenerator:
             info = InfoExtractor.extract_info_from_path(kappa_path)
             box_type: str = kappa_path.parts[-3]  # Assumes structure: .../fullsky/<seed>/zs*/...
             input_map: np.ndarray = self.load_map(kappa_path)
-            output_dir: Path = self.output_dir / box_type / f"zs{info['redshift']} /noiseless"
+            output_dir: Path = self.output_dir / box_type / f"zs{info['redshift']}/noiseless"
             logging.info(f"Output directory: {output_dir}")
             output_path: Path = self.generate_fname(kappa_path, output_dir)
             if output_path.exists() and not self.overwrite:
@@ -130,3 +130,9 @@ class PatchGenerator:
         patches: np.ndarray = self.pp.make_patches(input_map)
         np.save(output_path, patches)
         logging.info(f"Saved patches to {output_path}")
+
+if __name__ == "__main__":
+    pp = PatchProcessor(patch_size_deg=10)
+    zs_list = [0.5, 1.0, 1.5, 2.0, 2.5]
+    generator = PatchGenerator(pp, zs_list)
+    generator.run()

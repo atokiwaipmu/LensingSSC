@@ -49,6 +49,7 @@ class PatchAnalyzer:
                  xsize=2048):
         # Initialize parameters
         self.nbin = nbin
+        #self.bins = np.linspace(-0.10, 0.15, self.nbin + 1, endpoint=True)
         self.bins = np.linspace(-4, 4, self.nbin + 1, endpoint=True)
         self.nu = (self.bins[1:] + self.bins[:-1]) / 2
 
@@ -155,7 +156,11 @@ class PatchAnalyzer:
         conv_map = ConvergenceMap(pixels, angle=self.patch_size * u.deg)
         smoothed_map = conv_map.smooth(sl*u.arcmin).data
         sigma0 = np.std(smoothed_map)
-        smoothed_map = ConvergenceMap(smoothed_map/sigma0, angle=self.patch_size * u.deg)
+
+        #smoothed_map = ConvergenceMap(smoothed_map, angle=self.patch_size * u.deg)
+        #smoothed_map = ConvergenceMap(smoothed_map - np.nanmean(smoothed_map), angle=self.patch_size * u.deg)
+        #smoothed_map = ConvergenceMap(smoothed_map/sigma0, angle=self.patch_size * u.deg)
+        smoothed_map = ConvergenceMap((smoothed_map - np.nanmean(smoothed_map))/sigma0, angle=self.patch_size * u.deg)
         
         pdf = smoothed_map.pdf(self.bins)[1]
         peaks = compute_peak_statistics(smoothed_map, self.bins, is_minima=False, 
