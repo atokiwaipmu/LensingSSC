@@ -29,7 +29,7 @@ def main():
     # Initialize analyzer
     patch_analyzer = PatchAnalyzer()
 
-    save_dir = output_base_dir / args.box_type / "stats_subtract_nu_8bins"
+    save_dir = output_base_dir / args.box_type / "stats_unsubtract_nu_20bins"
     logging.info(f"Starting processing for box_type={args.box_type}, saving to {save_dir}")
     save_dir.mkdir(parents=True, exist_ok=True)
 
